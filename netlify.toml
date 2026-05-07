@@ -1,0 +1,18 @@
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Restringe todas las conexiones externas. Solo permite recursos del propio dominio ('self')
+    # Permite fuentes de Google (usadas comúnmente con Tailwind/UI) e imágenes en base64 (data:)
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:;"
+    
+    # Previene el Clickjacking (no permite que la app se incruste en iframes de terceros)
+    X-Frame-Options = "DENY"
+    
+    # Evita que el navegador adivine tipos MIME (MIME sniffing)
+    X-Content-Type-Options = "nosniff"
+    
+    # Fuerza conexiones seguras HTTPS
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    
+    # Define la política de Referer para no filtrar URLs internas
+    Referrer-Policy = "strict-origin-when-cross-origin"
