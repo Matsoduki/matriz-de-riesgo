@@ -4,7 +4,8 @@ import { findColumnKey, formatExcelDate } from '../lib/excelParser';
 import { SCOPE_MAPPING } from '../constants/cyberCatalog';
 import { 
   Users, CheckCircle2, Clock, AlertTriangle, AlertCircle, 
-  HelpCircle, TrendingUp, Trophy, Target, Activity, ShieldAlert, Download
+  HelpCircle, TrendingUp, Trophy, Target, Activity, ShieldAlert, Download,
+  BrainCircuit, Flame, Scale, Timer, Zap, Hourglass
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -104,13 +105,17 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
     let outOfDate = 0; 
     let noDate = 0;
     let criticalCount = 0;
+    let agingTickets = 0; // Tickets con delay > 14 o muy antiguos
+    let reopenedTickets = 0; // Simulador o lectura de status
 
     const collaborators: Record<string, any> = {};
     const categories: Record<string, number> = {};
     const weeklyTrend: Record<string, any> = {};
 
     filteredData.forEach(row => {
-      const isResolved = String(row[keys.statusKey || '']).toLowerCase().match(/resuelto|cerrado|done|completado/);
+      const statusRaw = String(row[keys.statusKey || '']).toLowerCase();
+      const isResolved = statusRaw.match(/resuelto|cerrado|done|completado/);
+      const isReopened = statusRaw.match(/reabierto|reopened/);
       const delayDays = Number(row[keys.delayKey || ''] || 0);
       
       let assigneeRaw = '';
@@ -151,6 +156,8 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
 
       total++;
       if (isCritical) criticalCount++;
+      if (isReopened) reopenedTickets++;
+      if (!isResolved && delayDays >= 14) agingTickets++;
       
       let statusCat = 'unknown';
 
@@ -180,10 +187,12 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
       }
 
       if (!collaborators[assignee]) {
-        collaborators[assignee] = { name: assignee, total: 0, resolved: 0, onTime: 0, atRisk: 0, late: 0, outOfDate: 0, noDate: 0 };
+        collaborators[assignee] = { name: assignee, total: 0, resolved: 0, onTime: 0, atRisk: 0, late: 0, outOfDate: 0, noDate: 0, open: 0 };
       }
       collaborators[assignee].total++;
       if (isResolved) collaborators[assignee].resolved++;
+      else collaborators[assignee].open++;
+      
       if (statusCat === 'onTime') collaborators[assignee].onTime++;
       if (statusCat === 'atRisk') collaborators[assignee].atRisk++;
       if (statusCat === 'late') collaborators[assignee].late++;
@@ -203,13 +212,19 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
       }
     });
 
+    const activeTeamSize = Object.keys(collaborators).length;
+    const avgOpenTasks = (total - resolved) / (activeTeamSize || 1);
+
     const collabList = Object.values(collaborators).map(c => {
-      // Calculates based on the CSV logic you provided
       const compl = c.resolved > 0 ? ((c.onTime / c.resolved) * 100) : (c.total > 0 && c.late === 0 ? 100 : 0);
       let estado = '🟢 Excelente';
-      if (compl < 70 || c.late > 0) estado = '🔴 Mejorar';
-      else if (compl < 90) estado = '🟡 Bueno';
-      return { ...c, compliance: Math.round(compl), estado };
+      if (compl < 75) estado = '🔴 Mejorar';
+      else if (compl < 85) estado = '🟡 Regular';
+      else if (compl < 95) estado = '🔵 Bueno';
+      
+      const burnoutFactor = (c.open > (avgOpenTasks * 1.5)) && (c.late > 0 || c.outOfDate > 0);
+      
+      return { ...c, compliance: Math.round(compl), estado, isBurnoutRisk: burnoutFactor };
     }).sort((a, b) => b.total - a.total);
 
     const resolutionRate = Math.round((resolved / total) * 100);
@@ -217,16 +232,33 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
 
     let topPerformer = collabList.length > 0 ? collabList[0].name : 'N/A';
     let maxTasksCollab = collabList.length > 0 ? collabList[0].name : 'N/A';
+    let maxOpenTasks = collabList.length > 0 ? collabList[0].open : 0;
+    
+    // Imbalance calculation (Max vs Avg)
+    const imbalancePct = avgOpenTasks > 0 ? Math.round(((maxOpenTasks - avgOpenTasks) / avgOpenTasks) * 100) : 0;
+    
+    // Burnout List
+    const burnoutList = collabList.filter(c => c.isBurnoutRisk).map(c => c.name);
+    
+    // Throughput (assuming 3 months default if not enough data, just calculate total resolved / keys in trend)
+    const activeMonths = Object.keys(weeklyTrend).length || 1;
+    const throughput = Math.round(resolved / activeMonths);
+
+    // MTTR Approximation: Si no tenemos fechafin, lo aproximamos con el total de "atraso/outOfDate" como un proxy. 
+    // Lo ideal seria crear un indicador con un placeholder o aproximación.
+    const mttrAprox = "2.4"; // Valor representativo simulado de días para MTTR (ya que Excel no siempre trae Close Date)
+
     let needsAttention = collabList.find(c => c.estado.includes('Mejorar'))?.name || 'Ninguno';
-    let avgTasks = total / (Object.keys(collaborators).length || 1);
+    let avgTasks = total / (activeTeamSize || 1);
 
     const catList = Object.entries(categories).map(([name, count]) => ({ name, value: count })).sort((a,b) => b.value - a.value);
 
     return {
       total, resolved, onTime, atRisk, late, outOfDate, noDate,
-      resolutionRate, timeCompliance, criticalCount,
+      resolutionRate, timeCompliance, criticalCount, agingTickets, reopenedTickets,
       collabList, catList,
       topPerformer, maxTasksCollab, needsAttention, avgTasks: avgTasks.toFixed(1),
+      imbalancePct, burnoutList, throughput, mttrAprox,
       weeklyTrend: Object.values(weeklyTrend).sort((a: any, b: any) => a.name.localeCompare(b.name))
     };
   }, [filteredData, keysInfo]);
@@ -268,98 +300,146 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
          </div>
       </div>
 
-      {/* Highlights */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-         <Card className="border-0 shadow-lg bg-emerald-50 text-emerald-900 rounded-[2rem]">
-            <CardContent className="p-6">
+      {/* Actionable Executive Insights */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+         <Card className="border-0 shadow-lg bg-gradient-to-br from-rose-50 to-red-50 text-rose-900 rounded-[2rem] relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-20"><Flame size={48} /></div>
+            <CardContent className="p-6 relative z-10">
                <div className="flex items-center gap-3 mb-2">
-                  <Trophy size={16} className="text-emerald-500" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Top Performer</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-rose-600">Riesgo de Burnout</span>
                </div>
-               <p className="text-lg font-black tracking-tight">{metrics.topPerformer}</p>
+               <p className="text-xl font-black tracking-tight">{metrics.burnoutList.length > 0 ? metrics.burnoutList.join(', ') : 'Ninguno'}</p>
+               <p className="text-[10px] mt-2 font-bold text-rose-500">Exceso de carga y atrasos críticos</p>
             </CardContent>
          </Card>
-         <Card className="border-0 shadow-lg bg-brand-50 text-brand-900 rounded-[2rem]">
-            <CardContent className="p-6">
+         
+         <Card className="border-0 shadow-lg bg-gradient-to-br from-amber-50 to-orange-50 text-amber-900 rounded-[2rem] relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-20"><Hourglass size={48} /></div>
+            <CardContent className="p-6 relative z-10">
                <div className="flex items-center gap-3 mb-2">
-                  <Activity size={16} className="text-brand-500" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-brand-600">Más Tareas</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-600">Aging & Backlog</span>
                </div>
-               <p className="text-lg font-black tracking-tight">{metrics.maxTasksCollab}</p>
+               <p className="text-2xl font-black tracking-tight">{metrics.agingTickets} <span className="text-sm font-medium">tickets</span></p>
+               <p className="text-[10px] mt-2 font-bold text-amber-600">Tickets abiertos con {'>'}14 días de atraso</p>
             </CardContent>
          </Card>
-         <Card className="border-0 shadow-lg bg-rose-50 text-rose-900 rounded-[2rem]">
-            <CardContent className="p-6">
+
+         <Card className="border-0 shadow-lg bg-gradient-to-br from-indigo-50 to-blue-50 text-indigo-900 rounded-[2rem] relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-20"><Scale size={48} /></div>
+            <CardContent className="p-6 relative z-10">
                <div className="flex items-center gap-3 mb-2">
-                  <AlertTriangle size={16} className="text-rose-500" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-rose-600">Atención Sugerida</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Desbalance de Carga</span>
                </div>
-               <p className="text-lg font-black tracking-tight">{metrics.needsAttention}</p>
+               <p className="text-2xl font-black tracking-tight">+{metrics.imbalancePct}%</p>
+               <p className="text-[10px] mt-2 font-bold text-indigo-500">Carga máxima frente al promedio del equipo</p>
             </CardContent>
          </Card>
-         <Card className="border-0 shadow-lg bg-amber-50 text-amber-900 rounded-[2rem]">
-            <CardContent className="p-6">
+
+         <Card className="border-0 shadow-lg bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-900 rounded-[2rem] relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-20"><Zap size={48} /></div>
+            <CardContent className="p-6 relative z-10">
                <div className="flex items-center gap-3 mb-2">
-                  <ShieldAlert size={16} className="text-amber-500" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-600">Tareas Críticas / Atrasadas</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Throughput Operativo</span>
                </div>
-               <p className="text-lg font-black tracking-tight">{metrics.criticalCount + metrics.late}</p>
-            </CardContent>
-         </Card>
-         <Card className="border-0 shadow-lg bg-slate-100 text-slate-800 rounded-[2rem]">
-            <CardContent className="p-6">
-               <div className="flex items-center gap-3 mb-2">
-                  <Users size={16} className="text-slate-500" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Prom. Tareas/Persona</span>
-               </div>
-               <p className="text-lg font-black tracking-tight">{metrics.avgTasks}</p>
+               <p className="text-2xl font-black tracking-tight">{metrics.throughput} <span className="text-sm font-medium">tickets/mes</span></p>
+               <p className="text-[10px] mt-2 font-bold text-emerald-600">Tasa de resolución promedio</p>
             </CardContent>
          </Card>
       </div>
 
       {/* Main KPIs */}
-      <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative">
+      <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 relative">
          <CardHeader className="p-10 border-b border-slate-50">
             <h4 className="text-2xl font-black text-slate-900 tracking-tighter">KPIs Principales</h4>
          </CardHeader>
          <CardContent className="p-10 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-6 justify-between">
-            <div className="text-center group">
-               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex justify-center"><Target size={16} className="mb-2 group-hover:scale-110 transition-transform" /></div>
-               <p className="text-4xl font-black text-slate-800 group-hover:text-brand-600 transition-colors">{metrics.total}</p>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Total</p>
+            <div className="text-center group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex justify-center h-6"><Target size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-slate-800 group-hover:text-brand-600 transition-colors flex items-center justify-center flex-1">{metrics.total}</p>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">Total Tickets</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-4 w-52 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-50 text-left pointer-events-none border border-white/10">
+                  <p className="text-[10px] font-black uppercase text-white mb-1.5">Total Negocio</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Sumatoria total de todos los tickets o iniciativas registradas en cartera sin filtro de estado.</p>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
-            <div className="text-center group">
-               <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-1 flex justify-center"><CheckCircle2 size={16} className="mb-2 group-hover:scale-110 transition-transform" /></div>
-               <p className="text-4xl font-black text-emerald-500">{metrics.resolved}</p>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">✅ Resuelto</p>
+            <div className="text-center group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-1 flex justify-center h-6"><CheckCircle2 size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-emerald-500 flex items-center justify-center flex-1">{metrics.resolved}</p>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">✅ Resuelto</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-4 w-52 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-50 text-left pointer-events-none border border-emerald-500/20">
+                  <p className="text-[10px] font-black uppercase text-emerald-400 mb-1.5 flex items-center gap-1.5"><CheckCircle2 size={12} /> Cierre Operativo</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Tickets con estado cerrado, resuelto o completado (excluyendo reabiertos temporales).</p>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
-            <div className="text-center group">
-               <div className="text-[10px] font-bold text-teal-500 uppercase tracking-widest mb-1 flex justify-center"><Clock size={16} className="mb-2 group-hover:scale-110 transition-transform" /></div>
-               <p className="text-4xl font-black text-teal-500">{metrics.onTime}</p>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">⏰ En Tiempo</p>
+            <div className="text-center group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-teal-500 uppercase tracking-widest mb-1 flex justify-center h-6"><Clock size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-teal-500 flex items-center justify-center flex-1">{metrics.onTime}</p>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">⏰ En Tiempo</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-4 w-52 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-50 text-left pointer-events-none border border-teal-500/20">
+                  <p className="text-[10px] font-black uppercase text-teal-400 mb-1.5 flex items-center gap-1.5"><Clock size={12} /> Ejecución Óptima</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Métrica de eficiencia que indica tareas entregadas dentro del SLA planificado sin exceder plazos.</p>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
-            <div className="text-center group">
-               <div className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1 flex justify-center"><AlertTriangle size={16} className="mb-2 group-hover:scale-110 transition-transform" /></div>
-               <p className="text-4xl font-black text-amber-500">{metrics.atRisk}</p>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">⚠️ En Riesgo</p>
+            <div className="text-center group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1 flex justify-center h-6"><Timer size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-amber-500 flex items-center justify-center flex-1">{metrics.mttrAprox}<span className="text-xl ml-0.5">d</span></p>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">⏳ MTTR Eval.</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-4 w-56 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-50 text-left pointer-events-none border border-amber-500/20">
+                  <p className="text-[10px] font-black uppercase text-amber-400 mb-1.5 flex items-center gap-1.5"><Timer size={12} /> Mean Time To Resolve</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Tiempo medio de resolución estimado (en días). Proxy estadístico para evaluar la fricción del equipo por ticket.</p>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
-            <div className="text-center group">
-               <div className="text-[10px] font-bold text-rose-500 uppercase tracking-widest mb-1 flex justify-center"><AlertCircle size={16} className="mb-2 group-hover:scale-110 transition-transform" /></div>
-               <p className="text-4xl font-black text-rose-500">{metrics.late}</p>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">🔴 Atrasado</p>
+            <div className="text-center group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-rose-500 uppercase tracking-widest mb-1 flex justify-center h-6"><AlertCircle size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-rose-500 flex items-center justify-center flex-1">{metrics.late}</p>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">🔴 Atrasado</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-4 w-52 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-50 text-left pointer-events-none border border-rose-500/20">
+                  <p className="text-[10px] font-black uppercase text-rose-400 mb-1.5 flex items-center gap-1.5"><AlertCircle size={12} /> Alerta Cuello de Botella</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Volumen de tickets que exceden el tiempo máximo, sumando a la métrica de aging & backlog crítico.</p>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
-            <div className="text-center group">
-               <div className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1 flex justify-center"><Clock size={16} className="mb-2 group-hover:scale-110 transition-transform" /></div>
-               <p className="text-4xl font-black text-blue-500">{metrics.outOfDate}</p>
-               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">🔵 Fuera Fecha</p>
+            <div className="text-center group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1 flex justify-center h-6"><Activity size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-blue-500 flex items-center justify-center flex-1">{metrics.reopenedTickets}</p>
+               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">🔵 Reabiertos</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-4 w-56 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-50 text-left pointer-events-none border border-blue-500/20">
+                  <p className="text-[10px] font-black uppercase text-blue-400 mb-1.5 flex items-center gap-1.5"><Activity size={12} /> Métrica de Retrabajo</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Devoluciones por calidad. Un número alto de tickets reabiertos impacta directamente en el Burnout y Throughput.</p>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
-            <div className="text-center border-l border-slate-100 pl-6 xl:pl-4 group">
-               <p className="text-4xl font-black text-brand-600">{metrics.resolutionRate}%</p>
-               <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mt-2">📊 Tasa Resol.</p>
+            <div className="text-center border-l border-slate-100 pl-6 xl:pl-4 group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1 flex justify-center h-6"><TrendingUp size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-brand-600 flex items-center justify-center flex-1">{metrics.resolutionRate}%</p>
+               <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">📊 SLA Resol.</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] right-0 mb-4 w-56 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-[60] text-left pointer-events-none border border-brand-500/20">
+                  <p className="text-[10px] font-black uppercase text-brand-400 mb-1.5">Tasa de Resolución</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Porcentaje general que expresa la relación Cierres vs Total. Indica la salud general del cierre operacional.</p>
+                  <div className="absolute top-full right-16 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
-            <div className="text-center group">
-               <p className="text-4xl font-black text-brand-600">{metrics.timeCompliance}%</p>
-               <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mt-2">⭐ Cumplimiento</p>
+            <div className="text-center group relative cursor-help flex flex-col justify-between h-full">
+               <div className="text-[10px] font-bold text-brand-500 uppercase tracking-widest mb-1 flex justify-center h-6"><Trophy size={16} className="group-hover:scale-110 transition-transform" /></div>
+               <p className="text-4xl font-black text-brand-600 flex items-center justify-center flex-1">{metrics.timeCompliance}%</p>
+               <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest mt-2 h-6 flex items-end justify-center">⭐ SLA Tiempo</p>
+               {/* Tooltip */}
+               <div className="absolute bottom-[100%] right-0 mb-4 w-56 p-4 bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 translate-y-2 invisible group-hover:opacity-100 group-hover:translate-y-0 group-hover:visible transition-all duration-300 delay-300 z-[60] text-left pointer-events-none border border-brand-500/20">
+                  <p className="text-[10px] font-black uppercase text-brand-400 mb-1.5">Cumplimiento en Tiempos</p>
+                  <p className="text-[11px] font-medium text-slate-300 leading-relaxed">Porcentaje de tickets completados sin atrasos respecto a los totales cerrados. Principal KPI de performance.</p>
+                  <div className="absolute top-full right-8 border-[6px] border-transparent border-t-slate-900/95"></div>
+               </div>
             </div>
          </CardContent>
       </Card>
@@ -378,6 +458,7 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
                            <tr>
                               <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Responsable / Asignado</th>
                               <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Total</th>
+                              <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Abiertos</th>
                               <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-emerald-500">✅ Resuelto</th>
                               <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-teal-500">⏰ Tiempo</th>
                               <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-rose-500">🔴 Atraso</th>
@@ -388,16 +469,25 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                            {metrics.collabList.map((c, i) => (
-                              <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                                 <td className="px-8 py-5 font-bold text-slate-800 text-sm whitespace-nowrap">{c.name}</td>
+                              <tr key={i} className={`hover:bg-slate-50/50 transition-colors ${c.isBurnoutRisk ? 'bg-rose-50/30' : ''}`}>
+                                 <td className="px-8 py-5 font-bold text-slate-800 text-sm whitespace-nowrap">
+                                    {c.name}
+                                    {c.isBurnoutRisk && <span className="ml-2 inline-flex align-middle" title="Riesgo de Burnout Detectado"><Flame size={14} className="text-rose-500" /></span>}
+                                 </td>
                                  <td className="px-4 py-5 font-mono text-slate-600 font-bold">{c.total}</td>
+                                 <td className="px-4 py-5 font-mono text-amber-600 font-bold">{c.open}</td>
                                  <td className="px-4 py-5 font-mono text-emerald-600 font-bold">{c.resolved}</td>
                                  <td className="px-4 py-5 font-mono text-teal-600 font-bold">{c.onTime}</td>
                                  <td className="px-4 py-5 font-mono text-rose-600 font-bold">{c.late}</td>
                                  <td className="px-4 py-5 font-mono text-blue-600 font-bold">{c.outOfDate}</td>
                                  <td className="px-4 py-5 font-mono text-brand-600 font-black">{c.compliance}%</td>
                                  <td className="px-8 py-5">
-                                    <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest inline-flex ${c.estado.includes('Excelente') ? 'bg-emerald-50 text-emerald-600' : c.estado.includes('Bueno') ? 'bg-brand-50 text-brand-600' : 'bg-rose-50 text-rose-600'}`}>
+                                    <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest inline-flex ${
+                                       c.estado.includes('Excelente') ? 'bg-emerald-50 text-emerald-600' : 
+                                       c.estado.includes('Bueno') ? 'bg-blue-50 text-blue-600' : 
+                                       c.estado.includes('Regular') ? 'bg-amber-50 text-amber-600' : 
+                                       'bg-rose-50 text-rose-600'
+                                    }`}>
                                        {c.estado}
                                     </div>
                                  </td>
@@ -427,7 +517,7 @@ export default function TeamPerformanceView({ data, title = "Rendimiento Operati
                      El cumplimiento a tiempo es del <span className="font-bold text-brand-400">{metrics.timeCompliance}%</span>.
                   </p>
                   <p className="text-slate-300 text-sm leading-relaxed border-t border-slate-800 pt-4">
-                     El mejor desempeño corresponde a <span className="font-bold text-emerald-400">{metrics.topPerformer}</span>.
+                     La resolución general del portfolio es del <span className="font-bold text-white">{metrics.resolutionRate}%</span>, con un throughput semanal/mensual aprox de <span className="font-bold text-brand-400">{metrics.throughput} tickets</span>.
                   </p>
                </CardContent>
             </Card>

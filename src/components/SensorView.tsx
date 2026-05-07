@@ -368,7 +368,7 @@ export default function SensorView({ data, isOverview }: Props) {
                 <option value="closed">Cerrados / Resueltos</option>
               </Select>
               <Button onClick={() => {
-                   exportToStyledExcel(filteredData, `Reporte_Sensores_Filtrado.xlsx`, 'Reporte de Sensores');
+                   exportToStyledExcel(allFilteredData, `Reporte_Sensores_Filtrado.xlsx`, 'Reporte de Sensores');
               }} className="h-9 px-4 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
                    <Download size={14} /> Exportar
               </Button>
