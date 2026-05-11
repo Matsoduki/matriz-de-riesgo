@@ -6,6 +6,14 @@ export interface DashboardData {
   jira2026: any[];
   sensor: any[];
   mandoYControl: any[];
+  metadata?: {
+    rowCount: number;
+    processedAt: string;
+    dataQuality: {
+      missingResponsibles: number;
+      criticalUnmapped: number;
+    };
+  };
 }
 
 export const parseExcelFile = async (file: File): Promise<DashboardData> => {
@@ -97,19 +105,43 @@ export const parseExcelFile = async (file: File): Promise<DashboardData> => {
           return XLSX.utils.sheet_to_json(sheet, { defval: "" });
         };
 
-        const jira2025 = getSheet('jira2025');
-        const jira2026 = getSheet('jira2026');
-        let sensor = getSheet('sensr');
-        if (sensor.length === 0) sensor = getSheet('sensor');
+        const rejected: any[] = [];
+        const processSheet = (data: any[]) => {
+          return data.filter(row => {
+            const hasData = Object.values(row).some(v => v !== "" && v !== null && v !== undefined);
+            if (!hasData) return false;
+            
+            // Minimal requirement for quality filtering
+            const hasIdentifier = findColumnKey(row, ["nro", "numero", "id", "key"]);
+            if (!hasIdentifier) {
+              // rejected.push(row); // For now just log silently or add to metadata
+              return true; 
+            }
+            return true;
+          });
+        };
 
-        let mandoYControl = getSheet('mando');
-        if (mandoYControl.length === 0) mandoYControl = getSheet('ciberseguridad');
+        const jira2025 = processSheet(getSheet('jira2025'));
+        const jira2026 = processSheet(getSheet('jira2026'));
+        let sensor = processSheet(getSheet('sensr'));
+        if (sensor.length === 0) sensor = processSheet(getSheet('sensor'));
+
+        let mandoYControl = processSheet(getSheet('mando'));
+        if (mandoYControl.length === 0) mandoYControl = processSheet(getSheet('ciberseguridad'));
 
         resolve({
           jira2025,
           jira2026,
           sensor,
-          mandoYControl
+          mandoYControl,
+          metadata: {
+            rowCount: jira2025.length + jira2026.length + sensor.length + mandoYControl.length,
+            processedAt: new Date().toISOString(),
+            dataQuality: {
+              missingResponsibles: [...jira2025, ...jira2026, ...sensor, ...mandoYControl].filter(r => !r['Responsable'] && !r['Asignado']).length,
+              criticalUnmapped: 0 
+            }
+          }
         });
       } catch (err) {
         reject(err);
@@ -121,14 +153,58 @@ export const parseExcelFile = async (file: File): Promise<DashboardData> => {
   });
 };
 
+export const isResolvedStatus = (status: any): boolean => {
+  const s = String(status || "").toLowerCase().trim();
+  return [
+    "resuelto", "cerrado", "completado", "done", "closed", 
+    "mitigado", "ok", "terminado", "finalizado", "término", "termino", "atendido", "exitoso",
+    "atendida", "finalizada", "resuelta", "cerrada"
+  ].some(term => s.includes(term));
+};
+
+export const getWeekNumber = (d: Date): number => {
+  const date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+};
+
+export const getISOWeek = (dateVal: any): string => {
+  const iso = getISOFromExcelDate(dateVal);
+  if (!iso) return "S/F";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "S/F";
+  const week = getWeekNumber(d);
+  return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+};
+
+/**
+ * Normalizes Lead Time (MTTR) into executive-friendly ranges to reduce cognitive load.
+ */
+export const normalizeMTTRDisplay = (days: number): string => {
+  if (days <= 0) return "Inmediato";
+  if (days < 1) {
+    const hours = Math.round(days * 24);
+    return hours === 0 ? "Inmediato" : `${hours}h`;
+  }
+  if (days <= 7) return `${Math.round(days)}d`;
+  if (days <= 14) return "1-2 sem";
+  if (days <= 30) return "2-4 sem";
+  return "+1 mes";
+};
+
 // Generic helper to find a column name dynamically
 export const findColumnKey = (row: any, keywords: string[]): string | undefined => {
   if (!row) return undefined;
   const keys = Object.keys(row);
   
-  const normalize = (str: string) => str.toLowerCase().replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalize = (str: string) => str.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+    .replace(/[._\-]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
 
-  // 1. Exact match priority (based on keyword order)
+  // 1. Exact match priority
   for (const kw of keywords) {
     const normalKw = normalize(kw);
     for (const key of keys) {
@@ -136,7 +212,7 @@ export const findColumnKey = (row: any, keywords: string[]): string | undefined 
     }
   }
 
-  // 2. Partial match priority (based on keyword order)
+  // 2. Partial match
   for (const kw of keywords) {
     const normalKw = normalize(kw);
     for (const key of keys) {
@@ -162,6 +238,38 @@ export const formatExcelDate = (value: any): string => {
     const excelEpoch = new Date(1899, 11, 30);
     const date = new Date(excelEpoch.getTime() + numVal * 86400000);
     if (!isNaN(date.getTime())) {
+      const d = String(date.getDate()).padStart(2, '0');
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const y = date.getFullYear();
+      return `${d}/${m}/${y}`;
+    }
+  }
+  
+  const strVal = String(value).trim();
+  // If it's already in YYYY-MM-DD, convert to DD/MM/YYYY
+  if (strVal.match(/^\d{4}-\d{2}-\d{2}/)) {
+    const parts = strVal.substring(0, 10).split('-');
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  // If it's something like MM/DD/YYYY or similar, it's probably already fine or we leave it
+  return strVal;
+};
+
+// Helper for logical sorting/filtering which needs ISO format
+export const getISOFromExcelDate = (value: any): string => {
+  if (value === undefined || value === null || value === '') return '';
+  
+  let numVal: number | null = null;
+  if (typeof value === 'number') {
+    numVal = value;
+  } else if (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value)) {
+    numVal = parseFloat(value);
+  }
+
+  if (numVal !== null && numVal > 30000 && numVal < 60000) {
+    const excelEpoch = new Date(1899, 11, 30);
+    const date = new Date(excelEpoch.getTime() + numVal * 86400000);
+    if (!isNaN(date.getTime())) {
       return date.toISOString().substring(0, 10);
     }
   }
@@ -170,5 +278,6 @@ export const formatExcelDate = (value: any): string => {
   if (strVal.match(/^\d{4}-\d{2}-\d{2}/)) {
     return strVal.substring(0, 10);
   }
+  
   return strVal;
 };

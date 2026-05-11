@@ -6,11 +6,11 @@ import {
   CardTitle,
   Input,
   Select,
-  Modal,
   Button,
 } from "./ui";
-import { findColumnKey, formatExcelDate } from "../lib/excelParser";
+import { findColumnKey, formatExcelDate, getISOFromExcelDate, isResolvedStatus } from "../lib/excelParser";
 import { exportToStyledExcel } from "../lib/utils";
+import { DetailsModal } from "./DetailsModal";
 import {
   Search,
   ShieldAlert,
@@ -35,6 +35,7 @@ import {
   Calendar,
   Users,
   ExternalLink,
+  List
 } from "lucide-react";
 import {
   BarChart,
@@ -44,15 +45,8 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-  AreaChart,
-  Area,
-  LineChart,
-  Line,
   ComposedChart,
+  Area,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -61,6 +55,11 @@ import {
   AMBITO_GROUPS,
   PriorityLevel,
 } from "../constants/cyberCatalog";
+import { CyberMetricsCards } from "./CyberMetricsCards";
+import { CyberChartsGrid } from "./CyberChartsGrid";
+import { CyberThroughputView } from "./CyberThroughputView";
+import { CyberRowDetailModal } from "./CyberRowDetailModal";
+import { CyberVendorDetailModal } from "./CyberVendorDetailModal";
 
 interface Props {
   data: any[];
@@ -106,10 +105,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const displayDate = (val: any) => {
-  const formatted = formatExcelDate(val);
-  if (!formatted || !formatted.includes("-")) return formatted;
-  const [y, m, d] = formatted.split("-");
-  return `${d}/${m}/${y}`;
+  return formatExcelDate(val);
 };
 
 export const isCriticalPriority = (val: any) => {
@@ -157,6 +153,7 @@ export default function CyberView({ data, title }: Props) {
   const [slaFilter, setSlaFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
+  const [showDetails, setShowDetails] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 30;
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
@@ -176,6 +173,12 @@ export default function CyberView({ data, title }: Props) {
       "analista",
       "usuario",
       "asignado",
+      "coordinador",
+      "técnico",
+      "tecnico",
+      "gestor",
+      "owner",
+      "propietario"
     ]
       .map((kw) => findColumnKey(sampleForKeys, [kw]))
       .filter(Boolean) as string[];
@@ -239,6 +242,12 @@ export default function CyberView({ data, title }: Props) {
         "analista",
         "usuario",
         "asignado",
+        "coordinador",
+        "técnico",
+        "tecnico",
+        "gestor",
+        "owner",
+        "propietario"
       ]
         .map((kw) => findColumnKey(sample, [kw]))
         .filter(Boolean) as string[],
@@ -395,6 +404,80 @@ export default function CyberView({ data, title }: Props) {
     keys,
   ]);
 
+  const filterOptions = useMemo(() => {
+    const counts = {
+      prestadores: {} as Record<string, number>,
+      priorities: {} as Record<string, number>,
+      responsables: {} as Record<string, number>,
+      statuses: {} as Record<string, number>,
+      slas: {} as Record<string, number>,
+      totalMatches: 0
+    };
+
+    if (!keys) return { prestadores: [], priorities: [], responsables: [], statuses: [], slas: [], counts };
+
+    cleanData.forEach((row) => {
+      // 1. Evaluate property values for this row
+      const searchMatch = !searchTerm || Object.values(row).some((val) => String(val).toLowerCase().includes(searchTerm.toLowerCase()));
+      if (!searchMatch) return;
+
+      const pres = String(row[keys.prestadorKey] || "");
+      const prio = String(row[keys.priorityKey] || "");
+      let resp = "S/A";
+      if (keys.assigneeKeys) {
+        for (const key of keys.assigneeKeys) {
+          const val = String(row[key] || "").trim();
+          if (val && val !== "-" && val.toLowerCase() !== "sin asignar") {
+            resp = val;
+            break;
+          }
+        }
+      }
+      const stat = String(row[keys.statusKey] || "No Definido");
+      
+      const priorityRaw = String(row[keys?.priorityKey || ""] || "").trim();
+      const priorityLower = priorityRaw.toLowerCase();
+      let policyLevel: PriorityLevel = "Bajo";
+      if (isCriticalPriority(priorityRaw)) policyLevel = "Crítico";
+      else if (priorityLower.includes("alta")) policyLevel = "Alto";
+      else if (priorityLower.includes("media") || priorityLower.includes("medium")) policyLevel = "Medio";
+      const policy = CYBER_SLA_POLICIES[policyLevel] || CYBER_SLA_POLICIES["Bajo"];
+      const isExternal = String(row[keys?.prestadorKey || ""]).toLowerCase() !== "interno" && String(row[keys?.prestadorKey || ""]) !== "-";
+      const threshold = isExternal ? policy.external : policy.internal;
+      const delayDays = Number(row["Dias de atraso"] || row["Atraso"] || 0);
+      const isOffPolicy = delayDays > threshold;
+      const slaVal = isOffPolicy ? "Atrasado" : "En Tiempo";
+
+      // 2. Check if row passes each filter constraint
+      const passPres = prestadorFilter === "all" || pres === prestadorFilter;
+      const passPrio = priorityFilter === "all" || prio === priorityFilter;
+      const passResp = responsableFilter === "all" || resp === responsableFilter;
+      const passStat = statusFilter === "all" || stat === statusFilter;
+      const passSla = slaFilter === "all" || slaVal === slaFilter;
+
+      // 3. Increment counters
+      if (passPres && passPrio && passResp && passStat && passSla) counts.totalMatches++;
+
+      if (keys.prestadorKey && passPrio && passResp && passStat && passSla) counts.prestadores[pres] = (counts.prestadores[pres] || 0) + 1;
+      if (keys.priorityKey && passPres && passResp && passStat && passSla) counts.priorities[prio] = (counts.priorities[prio] || 0) + 1;
+      if (keys.assigneeKeys && passPres && passPrio && passStat && passSla) counts.responsables[resp] = (counts.responsables[resp] || 0) + 1;
+      if (keys.statusKey && passPres && passPrio && passResp && passSla) counts.statuses[stat] = (counts.statuses[stat] || 0) + 1;
+      if (passPres && passPrio && passResp && passStat) counts.slas[slaVal] = (counts.slas[slaVal] || 0) + 1;
+    });
+
+    const buildList = (obj: Record<string, number>, currentFilter: string) => 
+      Object.keys(obj).filter(k => obj[k] > 0 || k === currentFilter).sort();
+
+    return {
+      prestadores: buildList(counts.prestadores, prestadorFilter),
+      priorities: buildList(counts.priorities, priorityFilter),
+      responsables: buildList(counts.responsables, responsableFilter),
+      statuses: buildList(counts.statuses, statusFilter),
+      slas: ["En Tiempo", "Atrasado"],
+      counts
+    };
+  }, [cleanData, searchTerm, prestadorFilter, priorityFilter, responsableFilter, statusFilter, slaFilter, keys]);
+
   const metrics = useMemo(() => {
     const initialState = {
       total: 0,
@@ -425,6 +508,13 @@ export default function CyberView({ data, title }: Props) {
       governanceGaps: 0,
       strategicChartData: [],
       ambitoChartData: [],
+      chiVal: 100,
+      trends: {
+        defense: { direction: 'down', value: '0%' },
+        coverage: { direction: 'down', value: '0%' },
+        critical: { direction: 'down', value: '0%' },
+        mttc: { direction: 'down', value: '0d' }
+      },
       ...keys,
     };
 
@@ -548,7 +638,7 @@ export default function CyberView({ data, title }: Props) {
       }
 
       if (dateKey && row[dateKey]) {
-        const d = formatExcelDate(row[dateKey]);
+        const d = getISOFromExcelDate(row[dateKey]);
         if (d && d.includes("-")) {
           const parts = d.split("-");
           const monthYear = `${parts[1]}/${parts[0]}`;
@@ -591,12 +681,7 @@ export default function CyberView({ data, title }: Props) {
       }
 
       if (statusKey && row[statusKey]) {
-        const status = String(row[statusKey]).toLowerCase();
-        if (
-          !status.includes("resuelto") &&
-          !status.includes("cerrado") &&
-          !status.includes("done")
-        ) {
+        if (!isResolvedStatus(row[statusKey])) {
           activeGaps++;
         }
       }
@@ -621,27 +706,52 @@ export default function CyberView({ data, title }: Props) {
       }))
       .sort((a, b) => b.critical - a.critical);
 
-    const chiVal = Math.round(
-      100 -
-        (activeGaps / (filteredData.length || 1)) * 20 -
-        (totalDelayed / (filteredData.length || 1)) * 80,
+    const slaCompliance = Math.round(((filteredData.length - totalDelayed) / (filteredData.length || 1)) * 100);
+    const criticalCount = filteredData.filter((r) => isCriticalPriority(r[priorityKey])).length;
+    const criticalDensityVal = Math.round((criticalCount / (filteredData.length || 1)) * 100);
+    const coverageVal = Math.round(((filteredData.length - governanceGaps) / (filteredData.length || 1)) * 100);
+    
+    // Balanced MTTC Score (Normalized 0-100, where < 15 days is 100)
+    const mttcVal = Math.round(
+      filteredData.reduce((acc, r) => acc + Number(r["Dias de atraso"] || 0), 0) / (filteredData.length || 1)
     );
-    const coverage = Math.round(
-      ((filteredData.length - governanceGaps) / (filteredData.length || 1)) *
-        100,
-    );
-    const criticalDensity = Math.round(
-      (filteredData.filter((r) => isCriticalPriority(r[priorityKey])).length /
-        (filteredData.length || 1)) *
-        100,
-    );
+    const mttcScore = Math.max(0, 100 - (mttcVal * 3)); // Decays after 33 days
 
-    const mttc = Math.round(
-      filteredData.reduce(
-        (acc, r) => acc + Number(r["Dias de atraso"] || 0),
-        0,
-      ) / (filteredData.length || 1),
-    );
+    // Robust CHI Formula (Enterprise Grade)
+    // 30% SLA + 30% Coverage + 20% Criticality (Inverted) + 20% MTTC Performance
+    const chiVal = Math.max(0, Math.min(100, Math.round(
+      (slaCompliance * 0.3) + 
+      (coverageVal * 0.3) + 
+      ((100 - criticalDensityVal) * 0.2) +
+      (mttcScore * 0.2)
+    )));
+
+    const coverage = coverageVal;
+    const criticalDensity = criticalDensityVal;
+    const mttc = mttcVal;
+
+    // Advanced Insight Engine logic
+    const insights = [];
+    if (chiVal < 80) insights.push({
+      title: "Riesgo de Postura",
+      text: "Se detecta una degradación en el CHI debido a altos tiempos de resolución en ítems críticos.",
+      type: "danger"
+    });
+    if (governanceGaps > (filteredData.length * 0.2)) insights.push({
+      title: "Fuga de Gobernanza",
+      text: `Más del 20% de la operación (${governanceGaps} items) no está mapeada al catálogo estratégico.`,
+      type: "warning"
+    });
+    if (slaCompliance < 90) insights.push({
+      title: "Alerta de SLA",
+      text: "El cumplimiento de SLA es sub-óptimo. Posible cuello de botella en proveedores externos.",
+      type: "warning"
+    });
+    if (insights.length === 0) insights.push({
+      title: "Postura Óptima",
+      text: "Todos los indicadores se mantienen dentro del umbral de resiliencia definido.",
+      type: "success"
+    });
 
     // Simulated Trend Logic (Enterprise feeling)
     const trends = {
@@ -668,7 +778,7 @@ export default function CyberView({ data, title }: Props) {
         const fieldVal = row[dateKey || ""];
         let month = "Sin Fecha";
         if (fieldVal) {
-          const d = formatExcelDate(fieldVal);
+          const d = getISOFromExcelDate(fieldVal);
           if (d && d.match(/^\d{4}-\d{2}/)) {
             month = d.substring(0, 7);
           }
@@ -679,14 +789,8 @@ export default function CyberView({ data, title }: Props) {
         if (isCriticalPriority(row[priorityKey])) {
           acc[month].critical += 1;
         }
-        const status = String(row[statusKey || ""]).toLowerCase();
-        if (
-          status.includes("resuelto") ||
-          status.includes("cerrado") ||
-          status.includes("completado") ||
-          status.includes("done") ||
-          status.includes("mitigado")
-        ) {
+        const statusValue = row[statusKey || ""];
+        if (isResolvedStatus(statusValue)) {
           acc[month].resolved += 1;
         }
 
@@ -768,6 +872,7 @@ export default function CyberView({ data, title }: Props) {
       mttc,
       healthScore: chiVal,
       trends,
+      copilotInsights: insights,
       prestadores: Object.keys(prestadorCount),
       priorities: Object.keys(priorityCount),
       responsables: Object.keys(responsableCount).sort(),
@@ -939,11 +1044,35 @@ export default function CyberView({ data, title }: Props) {
         </div>
         <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
           <button
+            onClick={() => setShowDetails(true)}
+            className="flex items-center gap-4 px-6 py-4 bg-brand-600 text-white rounded-[2rem] shadow-xl hover:bg-brand-700 transition-all border border-brand-700 group"
+          >
+            <div className="p-2 bg-brand-500/20 rounded-xl text-white group-hover:scale-110 transition-transform">
+              <List size={18} />
+            </div>
+            <div className="text-left hidden sm:block">
+              <div className="text-[10px] font-black uppercase tracking-widest leading-none mb-1 text-brand-200">
+                Auditoria
+              </div>
+              <div className="text-sm font-black tracking-tight text-white">
+                Ver Detalles
+              </div>
+            </div>
+          </button>
+          <button
             onClick={() => {
+              const appliedFilters = {
+                'Prestador/Socio': prestadorFilter === 'all' ? 'Todos' : prestadorFilter,
+                'Criticidad': priorityFilter === 'all' ? 'Todas' : priorityFilter,
+                'Responsable': responsableFilter === 'all' ? 'Todos' : responsableFilter,
+                'Estado': statusFilter === 'all' ? 'Todos' : statusFilter,
+                'SLA': slaFilter === 'all' ? 'Todos' : slaFilter
+              };
               exportToStyledExcel(
                 filteredData,
                 "Reporte_Mando_Y_Control_Filtrado.xlsx",
                 "Reporte Consolidado Ciberseguridad",
+                appliedFilters
               );
             }}
             className="flex items-center gap-4 px-6 py-4 bg-white text-slate-800 rounded-[2rem] shadow-xl hover:bg-slate-50 transition-all border border-slate-200 group"
@@ -983,6 +1112,27 @@ export default function CyberView({ data, title }: Props) {
         </div>
       </div>
 
+      <CyberThroughputView 
+        data={filteredData} 
+        dateKey={keys?.dateKey || ""} 
+        statusKey={keys?.statusKey || ""} 
+      />
+
+      <DetailsModal 
+         isOpen={showDetails} 
+         onClose={() => setShowDetails(false)} 
+         data={filteredData} 
+         title={`Detalles: ${title || 'Ciberseguridad'}`} 
+         filename="Reporte_Ciberseguridad_Full.xlsx" 
+         appliedFilters={{
+           'Prestador/Socio': prestadorFilter === 'all' ? 'Todos' : prestadorFilter,
+           'Criticidad': priorityFilter === 'all' ? 'Todas' : priorityFilter,
+           'Responsable': responsableFilter === 'all' ? 'Todos' : responsableFilter,
+           'Estado': statusFilter === 'all' ? 'Todos' : statusFilter,
+           'SLA': slaFilter === 'all' ? 'Todos' : slaFilter
+         }}
+      />
+
       <AnimatePresence>
         {showValueHub && (
           <motion.div
@@ -1021,125 +1171,25 @@ export default function CyberView({ data, title }: Props) {
       </AnimatePresence>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="border-0 shadow-2xl bg-[#0F1115] text-white rounded-[2.5rem] border border-white/5 relative group overflow-hidden">
-          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-            <ShieldCheck size={120} className="text-brand-500" />
-          </div>
-          <CardContent className="p-8 relative z-10">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
-                <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">
-                  Integridad de Defensa
-                </p>
-              </div>
-              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${metrics.trends.defense.direction === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                {metrics.trends.defense.direction === 'up' ? <ArrowUpRight size={10} /> : <Activity size={10} />} {metrics.trends.defense.value}
-              </div>
-            </div>
-            <h3 className="text-7xl font-black tracking-tighter leading-none mb-6 text-white">
-              {metrics.chiVal}
-              <span className="text-3xl text-white/50 ml-1">%</span>
-            </h3>
-            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden mb-2">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${metrics.chiVal}%` }}
-                transition={{ duration: 2 }}
-                className="h-full bg-brand-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]"
-              />
-            </div>
-            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
-              Score de Salud Normativa & Mitigación
-            </p>
-          </CardContent>
-          {/* Tooltip Contextual */}
-          <div className="absolute inset-0 bg-brand-900/95 backdrop-blur-md p-8 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-4 group-hover:translate-y-0 pointer-events-none flex flex-col justify-center">
-            <p className="text-[10px] font-black text-brand-400 uppercase tracking-widest mb-2">KPI Estratégico</p>
-            <p className="text-sm font-bold text-white leading-relaxed">
-              Mide la eficacia del cierre de brechas y cumplimiento de políticas de SLA. Un score ^80% indica un ecosistema resiliente.
-            </p>
-          </div>
-        </Card>
+      <CyberMetricsCards 
+        metrics={{
+          total: metrics.total,
+          critical: filteredData.filter((r) => isCriticalPriority(r[keys?.priorityKey || ""])).length,
+          resolved: metrics.cumulativeTrends.length > 0 ? metrics.cumulativeTrends[metrics.cumulativeTrends.length - 1].resolved : 0,
+          pending: metrics.activeGaps,
+          avgAging: metrics.mttc,
+          complianceRate: metrics.chiVal,
+          onTimeRate: Math.round(((metrics.total - metrics.totalDelayed) / (metrics.total || 1)) * 100),
+          mttr: String(metrics.mttc)
+        }}
+      />
 
-        {[
-          {
-            label: "Gob. de Activos",
-            val: metrics.coverage,
-            icon: Globe,
-            color: "brand",
-            trend: metrics.trends.coverage,
-            desc: "Porcentaje de registros vinculados a un dominio estratégico."
-          },
-          {
-            label: "Densidad Exposición",
-            val: metrics.criticalDensity,
-            icon: AlertCircle,
-            color: "rose",
-            trend: metrics.trends.critical,
-            desc: "Proporción de hallazgos de alta criticidad sobre el total."
-          },
-          {
-            label: "MTTC Remediation",
-            val: metrics.mttc,
-            icon: Activity,
-            color: "amber",
-            suffix: "días",
-            trend: metrics.trends.mttc,
-            desc: "Tiempo medio transcurrido para la resolución de gaps."
-          },
-        ].map((kpi, idx) => (
-          <Card
-            key={idx}
-            className="border-0 shadow-xl bg-white rounded-[2.5rem] border border-slate-100 p-10 relative group overflow-hidden"
-          >
-            <div className="flex justify-between items-start mb-8">
-              <div>
-                <div className={`flex items-center gap-2 mb-1`}>
-                  <div className={`h-1 w-4 bg-${kpi.color}-500 rounded-full`} />
-                  <p
-                    className={`text-${kpi.color}-500 text-[10px] font-black uppercase tracking-[0.2em]`}
-                  >
-                    {kpi.label}
-                  </p>
-                </div>
-                <h4 className="text-md font-black text-slate-800 uppercase tracking-tighter">
-                  {kpi.label}
-                </h4>
-              </div>
-              <div
-                className={`p-4 rounded-xl bg-slate-50 text-slate-400 group-hover:bg-${kpi.color}-50 group-hover:text-${kpi.color}-600 transition-colors`}
-              >
-                <kpi.icon size={20} />
-              </div>
-            </div>
-            <div className="flex items-baseline gap-2 mb-6">
-              <span className="text-5xl font-black text-slate-900 tracking-tighter font-mono">
-                {kpi.val}
-                {!kpi.suffix && "%"}
-              </span>
-              {kpi.suffix && (
-                <span className="text-xs font-black text-slate-400 uppercase">
-                  {kpi.suffix}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-               <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest ${kpi.trend.direction === 'down' && kpi.color === 'rose' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-500'}`}>
-                  {kpi.trend.direction === 'up' ? <ArrowUpRight size={10} /> : <Activity size={10} />} {kpi.trend.value}
-               </div>
-               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">vs baseline</span>
-            </div>
-            
-            {/* Context Tooltip */}
-            <div className={`absolute inset-x-0 bottom-0 p-8 bg-${kpi.color}-600 text-white translate-y-full group-hover:translate-y-0 transition-transform duration-300 pointer-events-none`}>
-               <p className="text-[10px] font-black uppercase tracking-widest mb-1">Impacto de Negocio</p>
-               <p className="text-xs font-bold leading-relaxed">{kpi.desc}</p>
-            </div>
-          </Card>
-        ))}
-      </div>
+      <CyberChartsGrid 
+        statusData={Object.entries(metrics.statusCount).map(([name, value]) => ({ name, value }))}
+        priorityData={Object.entries(metrics.priorityCount).map(([name, value]) => ({ name, value }))}
+        categoryData={metrics.strategicChartData.map(d => ({ name: d.name, value: d.total }))}
+        colors={STATUS_COLORS}
+      />
       
       {/* Strategic Insights Section - Executive Copilot */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1542,10 +1592,10 @@ export default function CyberView({ data, title }: Props) {
                     onChange={(e) => setPrestadorFilter(e.target.value)}
                     className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
                   >
-                    <option value="all">Socio ({metrics.total})</option>
-                    {metrics.prestadores.map((v: any) => (
+                    <option value="all">Socio ({filterOptions.counts.totalMatches})</option>
+                    {filterOptions.prestadores.map((v: any) => (
                       <option key={v} value={v}>
-                        {v} ({metrics.prestadorCount[v]})
+                        {v} ({filterOptions.counts.prestadores[v] || 0})
                       </option>
                     ))}
                   </Select>
@@ -1561,10 +1611,10 @@ export default function CyberView({ data, title }: Props) {
                     onChange={(e) => setPriorityFilter(e.target.value)}
                     className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
                   >
-                    <option value="all">Criticidad</option>
-                    {metrics.priorities.map((p: any) => (
+                    <option value="all">Criticidad ({filterOptions.counts.totalMatches})</option>
+                    {filterOptions.priorities.map((p: any) => (
                       <option key={p} value={p}>
-                        {p} ({metrics.priorityCount[p]})
+                        {p} ({filterOptions.counts.priorities[p] || 0})
                       </option>
                     ))}
                   </Select>
@@ -1580,10 +1630,10 @@ export default function CyberView({ data, title }: Props) {
                     onChange={(e) => setResponsableFilter(e.target.value)}
                     className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
                   >
-                    <option value="all">Resp.</option>
-                    {metrics.responsables.map((r: any) => (
+                    <option value="all">Resp. ({filterOptions.counts.totalMatches})</option>
+                    {filterOptions.responsables.map((r: any) => (
                       <option key={r} value={r}>
-                        {r} ({metrics.responsableCounts[r]})
+                        {r} ({filterOptions.counts.responsables[r] || 0})
                       </option>
                     ))}
                   </Select>
@@ -1599,10 +1649,10 @@ export default function CyberView({ data, title }: Props) {
                     onChange={(e) => setStatusFilter(e.target.value)}
                     className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
                   >
-                    <option value="all">Estado</option>
-                    {metrics.statuses.map((s: any) => (
+                    <option value="all">Estado ({filterOptions.counts.totalMatches})</option>
+                    {filterOptions.statuses.map((s: any) => (
                       <option key={s} value={s}>
-                        {s} ({metrics.statusCount[s]})
+                        {s} ({filterOptions.counts.statuses[s] || 0})
                       </option>
                     ))}
                   </Select>
@@ -1619,9 +1669,9 @@ export default function CyberView({ data, title }: Props) {
                     className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
                   >
                     <option value="all">SLA</option>
-                    {metrics.slas.map((s: any) => (
+                    {filterOptions.slas.map((s: any) => (
                       <option key={s} value={s}>
-                        {s} ({metrics.slaCount[s]})
+                        {s} ({filterOptions.counts.slas[s] || 0})
                       </option>
                     ))}
                   </Select>
@@ -1809,331 +1859,35 @@ export default function CyberView({ data, title }: Props) {
         </CardContent>
       </Card>
 
-      <Modal
+      <CyberVendorDetailModal 
         isOpen={!!selectedVendor}
         onClose={() => setSelectedVendor(null)}
-        title={selectedVendor ? `Business Report: ${selectedVendor}` : "Análisis de Socio"}
-      >
-        {selectedVendor && (
-          <div className="space-y-6">
-            <div className="bg-[#0f172a] p-10 rounded-[2rem] text-white relative overflow-hidden border border-white/5">
-              <div className="absolute top-0 right-0 w-80 h-80 bg-brand-500/10 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2" />
-              <div className="absolute bottom-0 left-0 w-40 h-40 bg-indigo-500/10 rounded-full blur-[80px] translate-y-1/2" />
+        vendor={selectedVendor}
+        vendorData={vendorDetailData}
+        keys={keys}
+        isCriticalPriority={isCriticalPriority}
+        onRowClick={(row) => setSelectedRow(row)}
+        onExport={() => {
+          const appliedFilters = {
+            'Prestador Seleccionado': selectedVendor || 'Desconocido'
+          };
+          exportToStyledExcel(
+            vendorDetailData,
+            `BusinessReport_${selectedVendor}.xlsx`,
+            `Executive Security Report: ${selectedVendor}`,
+            appliedFilters
+          );
+        }}
+      />
 
-              <div className="relative z-10">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
-                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">
-                    Intelligence Insight / Socio Estratégico
-                  </p>
-                </div>
-                <h3 className="text-4xl font-black tracking-tighter text-white mb-8">
-                  {selectedVendor}
-                </h3>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5">
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                      <Layout size={12} className="text-brand-400" /> Total Casos
-                    </p>
-                    <p className="text-3xl font-black text-white leading-none">
-                      {vendorDetailData.length}
-                    </p>
-                  </div>
-                  <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5">
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                      <AlertOctagon size={12} className="text-rose-400" /> Nivel Crítico
-                    </p>
-                    <p className="text-3xl font-black text-rose-500 leading-none">
-                      {
-                        vendorDetailData.filter((r) =>
-                          isCriticalPriority(r[keys?.priorityKey || ""]),
-                        ).length
-                      }
-                    </p>
-                  </div>
-                  <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5">
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                      <Clock size={12} className="text-amber-400" /> En Atraso
-                    </p>
-                    <p className="text-3xl font-black text-amber-500 leading-none">
-                      {
-                        vendorDetailData.filter(
-                          (r) => Number(r["Dias de atraso"] || 0) > 0,
-                        ).length
-                      }
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="max-h-[450px] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-              {vendorDetailData.map((row, idx) => {
-                const priority = String(row[keys?.priorityKey || ""]).trim();
-                const status = String(row[keys?.statusKey || ""]).trim();
-                const title = row[keys?.gapKey || "GAP"] || 
-                              row[keys?.vulnKey || "Vulnerabilidades"] ||
-                              row["PROYECTO O TAREA"] ||
-                              "Nodo de Riesgo";
-
-                return (
-                  <div
-                    key={idx}
-                    className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-between group hover:border-brand-500/50 hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => setSelectedRow(row)}
-                  >
-                    <div className="flex-1 pr-6">
-                      <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight mb-2 line-clamp-1 group-hover:text-brand-600 transition-colors">
-                        {title}
-                      </p>
-                      <div className="flex items-center gap-3">
-                         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-50 border border-slate-100">
-                            <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] || '#94a3b8' }} />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">{status}</span>
-                         </div>
-                         <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
-                           <Target size={11} /> 
-                           {String(row[keys?.projectKey || ""] || row["Proyecto"] || "General")}
-                         </span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                       <div className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${isCriticalPriority(priority) ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-50 text-slate-600 border-slate-100'}`}>
-                          {priority}
-                       </div>
-                       {Number(row["Dias de atraso"] || 0) > 0 && (
-                          <div className="flex items-center gap-1 text-rose-600">
-                             <Clock size={10} />
-                             <span className="text-[8px] font-black uppercase tracking-widest">+{row["Dias de atraso"]}d Atraso</span>
-                          </div>
-                       )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex gap-4">
-              <Button
-                variant="outline"
-                className="flex-1 h-14 rounded-2xl border-2 border-slate-200 text-slate-600 text-[11px] font-black uppercase tracking-widest hover:bg-slate-50 transition-colors"
-                onClick={() => setSelectedVendor(null)}
-              >
-                Regresar
-              </Button>
-              <Button
-                className="flex-1 h-14 rounded-2xl bg-[#0f172a] text-white text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-colors shadow-xl"
-                onClick={() =>
-                  exportToStyledExcel(
-                    vendorDetailData,
-                    `BusinessReport_${selectedVendor}.xlsx`,
-                    `Executive Security Report: ${selectedVendor}`,
-                  )
-                }
-              >
-                <Download size={18} className="mr-2" /> Exportar Reporte
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
+      <CyberRowDetailModal 
         isOpen={!!selectedRow}
         onClose={() => setSelectedRow(null)}
-        title={
-          selectedRow
-            ? `Reporte Detallado: ${metrics?.idKey && selectedRow[metrics.idKey] ? selectedRow[metrics.idKey] : "Snapshot"}`
-            : "Detalle de Ejecución"
-        }
-      >
-        {selectedRow && (
-          <div className="space-y-6">
-            <div className="bg-[#0f172a] p-10 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden border border-white/5">
-              <div className="absolute top-0 right-0 p-10 opacity-5">
-                <ShieldAlert size={180} />
-              </div>
-              <div className="flex items-center gap-3 mb-6 relative z-10">
-                <div className="p-2 bg-brand-500/10 rounded-xl">
-                   <Activity size={16} className="text-brand-400" />
-                </div>
-                <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">
-                  Security Control Hub / Análisis de Registro
-                </p>
-              </div>
-              
-              <h3 className="text-3xl font-black mb-8 tracking-tighter leading-[1.1] relative z-10 text-white max-w-2xl">
-                {selectedRow["GAPS"] ||
-                  selectedRow["Vulnerabilidades"] ||
-                  selectedRow["Proyecto o Tarea"] ||
-                  selectedRow["PROYECTO O TAREA"] ||
-                  "Registro de Control"}
-              </h3>
-
-              <div className="flex flex-wrap gap-3 relative z-10">
-                <div className="flex flex-col gap-1 px-5 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl">
-                   <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Nivel Crítico</span>
-                   <span className={`text-[11px] font-black uppercase tracking-widest ${isCriticalPriority(selectedRow["CRITICIDAD"] || selectedRow[metrics.priorityKey || ""]) ? 'text-rose-400' : 'text-slate-300'}`}>
-                      {selectedRow["CRITICIDAD"] || selectedRow[metrics.priorityKey || ""] || "BASE"}
-                   </span>
-                </div>
-                <div className="flex flex-col gap-1 px-5 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl">
-                   <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Estado</span>
-                   <span className="text-[11px] font-black uppercase tracking-widest text-brand-400 font-mono">
-                      {selectedRow["SEMAFORO"] || selectedRow[metrics.statusKey || ""] || "ACTIVO"}
-                   </span>
-                </div>
-                <div className="flex flex-col gap-1 px-5 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl">
-                   <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Time Gap</span>
-                   <span className="text-[11px] font-black uppercase tracking-widest text-amber-400">
-                      {selectedRow["Dias de Atraso"] || selectedRow["Dias de atraso"] || "0"} Días Atraso
-                   </span>
-                </div>
-                {selectedRow["Nro."] && (
-                  <div className="flex flex-col gap-1 px-5 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl">
-                     <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Folio</span>
-                     <span className="text-[11px] font-black text-slate-400">#{selectedRow["Nro."]}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                { 
-                  label: "Gobierno Seg.", 
-                  icon: Users, 
-                  val: selectedRow["Responsable Seguridad"] || "S/A",
-                  sub: selectedRow["Backup"] ? `Backup: ${selectedRow["Backup"]}` : null 
-                },
-                { 
-                  label: "Solicitante", 
-                  icon: Target, 
-                  val: selectedRow["Area Solicitante"] || selectedRow["Ámbito"] || "General",
-                  sub: selectedRow["Persona Solicitante"] || null
-                },
-                { 
-                  label: "Cronología", 
-                  icon: Clock, 
-                  val: displayDate(selectedRow["FECHA INICIO (DD-MM-YYYY)"] || selectedRow["MES Inicio"]) || "S/D",
-                  sub: selectedRow["Fecha de compromiso"] ? `Compromiso: ${displayDate(selectedRow["Fecha de compromiso"])}` : null
-                },
-                { 
-                  label: "Estado Final", 
-                  icon: ShieldCheck, 
-                  val: displayDate(selectedRow["Fecha de Cierre"]) || "Proceso",
-                  sub: selectedRow["Dias Abierto"] ? `${selectedRow["Dias Abierto"]} días activo` : null
-                }
-              ].map((item, i) => (
-                <div key={i} className="bg-slate-50 border border-slate-100 p-6 rounded-[1.5rem] shadow-sm group hover:bg-white hover:shadow-md transition-all flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <item.icon size={14} className="text-slate-600 group-hover:text-brand-500 transition-colors" />
-                      <span className="text-[12px] font-black text-slate-600 uppercase tracking-widest">{item.label}</span>
-                    </div>
-                    <p className="text-sm font-black text-slate-900 break-words tracking-tight uppercase mb-1">
-                      {item.val}
-                    </p>
-                  </div>
-                  {item.sub && (
-                    <p className="text-xs font-bold text-slate-700 mt-2 italic leading-tight">
-                      {item.sub}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
-               <div className="flex items-center gap-3 mb-8">
-                  <div className="p-2 bg-brand-50 rounded-xl text-brand-600">
-                     <Layout size={18} />
-                  </div>
-                  <h4 className="text-xs font-black uppercase tracking-widest text-slate-800">Inteligencia Operacional</h4>
-               </div>
-               
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                 <div className="space-y-8">
-                    <div>
-                      <p className="text-[12px] font-black text-slate-600 uppercase tracking-[0.2em] mb-3">Contexto de Actividad</p>
-                      <div className="space-y-4">
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                           <span className="text-[11px] font-black text-slate-600 uppercase block mb-1">Categoría / Ámbito</span>
-                           <p className="text-sm font-bold text-slate-800">
-                             {selectedRow["CATEGORÍA"]} - {selectedRow["AMBITO"]}
-                           </p>
-                        </div>
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                           <span className="text-[11px] font-black text-slate-600 uppercase block mb-1">Proyecto / Tarea</span>
-                           <p className="text-sm font-bold text-slate-800">
-                             {selectedRow["Proyecto o Tarea"] || selectedRow["PROYECTO O TAREA"]}
-                           </p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                       <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/50">
-                          <span className="text-[11px] font-black text-indigo-600 uppercase block mb-1">Horas Totales</span>
-                          <p className="text-xl font-black text-indigo-700">{selectedRow["Horas Totales"] || "0"}<span className="text-xs ml-1 font-bold italic">hrs</span></p>
-                       </div>
-                       <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100/50">
-                          <span className="text-[11px] font-black text-emerald-600 uppercase block mb-1">Periodicidad</span>
-                          <p className="text-sm font-black text-emerald-700 uppercase tracking-tighter">{selectedRow["PERIODICIDAD"] || "ÚNICA"}</p>
-                       </div>
-                    </div>
-                 </div>
-                 
-                 <div className="space-y-6">
-                    <div>
-                      <p className="text-[12px] font-black text-slate-600 uppercase tracking-[0.2em] mb-3">Narrativa Operativa</p>
-                      <div className="bg-slate-900 rounded-2xl p-6 space-y-6">
-                         <div>
-                            <span className="text-[11px] font-black text-brand-400 uppercase block mb-2">Situación Actual</span>
-                            <p className="text-sm font-medium text-slate-300 leading-relaxed italic">
-                               "{selectedRow["Sitación Actual"] || "Sin registro de estado situacional"}"
-                            </p>
-                         </div>
-                         <div>
-                            <span className="text-[11px] font-black text-brand-400 uppercase block mb-2">Acciones Realizadas</span>
-                            <p className="text-sm font-medium text-slate-300 leading-relaxed">
-                               {selectedRow["Acciones"] || "No se han documentado acciones específicas."}
-                            </p>
-                         </div>
-                         {selectedRow["Plan de Mitigación"] && selectedRow["Plan de Mitigación"] !== "No Aplica" && (
-                           <div className="pt-4 border-t border-white/5">
-                              <span className="text-[11px] font-black text-rose-400 uppercase block mb-2">Plan de Mitigación</span>
-                              <p className="text-sm font-medium text-slate-400 leading-relaxed">
-                                 {selectedRow["Plan de Mitigación"]}
-                              </p>
-                           </div>
-                         )}
-                      </div>
-                    </div>
-                 </div>
-               </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <Button 
-                  onClick={() => setSelectedRow(null)}
-                  className="flex-1 h-14 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] transition-all"
-              >
-                  Regresar al Dash
-              </Button>
-              {selectedRow["ARCHIVOS ADJUNTOS\n(URL ONE DRIVE)"] && selectedRow["ARCHIVOS ADJUNTOS\n(URL ONE DRIVE)"] !== "-" && (
-                 <Button 
-                    className="h-14 px-8 bg-brand-50 text-brand-600 border-2 border-brand-100 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2"
-                    onClick={() => window.open(selectedRow["ARCHIVOS ADJUNTOS\n(URL ONE DRIVE)"], '_blank')}
-                 >
-                    <ExternalLink size={14} /> Evidencias
-                 </Button>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
+        row={selectedRow}
+        metrics={metrics}
+        isCriticalPriority={isCriticalPriority}
+        displayDate={displayDate}
+      />
     </div>
   );
 }

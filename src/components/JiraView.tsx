@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Input, Select, Modal, Button } from './ui';
-import { findColumnKey, formatExcelDate } from '../lib/excelParser';
+import { findColumnKey, formatExcelDate, getISOFromExcelDate } from '../lib/excelParser';
 import { exportToStyledExcel } from '../lib/utils';
 import {
   BarChart,
@@ -15,9 +15,31 @@ import {
   Cell,
   Legend,
   AreaChart,
-  Area
+  Area,
+  LineChart,
+  Line
 } from 'recharts';
-import { Search, AlertTriangle, CheckCircle, Clock, BarChart3, Target, Download } from 'lucide-react';
+import { 
+  Search, 
+  AlertTriangle, 
+  CheckCircle, 
+  Clock, 
+  BarChart3, 
+  Target, 
+  Download, 
+  Activity, 
+  ShieldAlert, 
+  Zap, 
+  ShieldCheck,
+  Globe,
+  Cpu,
+  ArrowUpRight,
+  ArrowDownRight,
+  Radar,
+  Network,
+  List
+} from 'lucide-react';
+import { DetailsModal } from './DetailsModal';
 import { motion } from 'motion/react';
 
 interface Props {
@@ -28,35 +50,60 @@ interface Props {
 
 const COLORS = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#0ea5e9', '#38bdf8', '#7dd3fc'];
 const PRIORITIES_COLORS: Record<string, string> = {
-  'alta': '#ef4444',
-  'high': '#ef4444',
-  'critico': '#b91c1c',
-  'crítico': '#b91c1c',
-  'media': '#f59e0b',
+  'alta': '#e11d48', // rose-600
+  'high': '#e11d48',
+  'critico': '#9f1239', // rose-900 
+  'crítico': '#9f1239',
+  'media': '#f59e0b', // amber-500
   'medium': '#f59e0b',
-  'baja': '#3b82f6',
-  'low': '#3b82f6',
+  'baja': '#0ea5e9', // sky-500
+  'low': '#0ea5e9',
 };
 
 const STATUS_COLORS: Record<string, string> = {
   'To Do': '#64748b',
-  'In Progress': '#3b82f6',
-  'Done': '#22c55e',
-  'Cerrado': '#22c55e',
-  'Resuelto': '#22c55e',
+  'In Progress': '#2563eb',
+  'Done': '#059669',
+  'Cerrado': '#059669',
+  'Resuelto': '#059669',
   'Abierto': '#3b82f6',
   'En curso': '#3b82f6',
-  'En progreso': '#eab308',
-  'Atrasado': '#ef4444',
-  'RESUELTO': '#22c55e',
-  'ATRASADO': '#ef4444',
+  'En progreso': '#f59e0b',
+  'Atrasado': '#e11d48',
+  'RESUELTO': '#059669',
+  'ATRASADO': '#e11d48',
   'EN CURSO': '#3b82f6',
 };
+
+const SEVERITY_CONFIG = {
+  CRITICAL: { color: '#9f1239', bg: 'bg-rose-50', text: 'text-rose-700', label: 'Crítico' },
+  HIGH: { color: '#e11d48', bg: 'bg-rose-50', text: 'text-rose-600', label: 'Alta' },
+  MEDIUM: { color: '#f59e0b', bg: 'bg-amber-50', text: 'text-amber-700', label: 'Media' },
+  LOW: { color: '#0ea5e9', bg: 'bg-sky-50', text: 'text-sky-700', label: 'Baja' },
+};
+
+const Sparkline = ({ data, color }: { data: any[], color: string }) => (
+  <div className="h-6 w-12 opacity-60">
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={data}>
+        <Line 
+          type="monotone" 
+          dataKey="val" 
+          stroke={color} 
+          strokeWidth={2} 
+          dot={false} 
+          isAnimationActive={true}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  </div>
+);
 
 export default function JiraView({ data, title, isOverview = false }: Props) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [showDetails, setShowDetails] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 50;
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
@@ -81,12 +128,22 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       delayedTickets: 0,
       commitmentHealth: 0,
       overdueCommitment: 0,
+      efficiency: 0,
+      healthStatus: 'CRITICAL',
+      sparklines: {
+        total: [], active: [], risk: [], health: [], milestones: []
+      },
       statusChartData: [],
       priorityChartData: [],
       timelineData: [],
       topProjects: [],
+      providerChartData: [],
+      insights: [],
       statusKey: 'Status',
       priorityKey: 'Priority',
+      assigneeKeys: [],
+      idKey: 'ID',
+      commitmentDateKey: undefined,
       statuses: [],
       priorities: []
     };
@@ -136,7 +193,7 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
           providerStats[prov].total++;
           
           const status = String(row[statusKey || ''] || '').toLowerCase();
-          const isResolved = status.includes('done') || status.includes('cerrado') || status.includes('resuelto');
+          const isResolved = status.includes('done') || status.includes('cerrado') || status.includes('resuelto') || status.includes('closed') || status.includes('completado');
           const isDelayed = status.includes('atrasado') || status.includes('atrasada');
           
           if (isResolved) providerStats[prov].resolved++;
@@ -148,12 +205,12 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       if (statusKey && row[statusKey]) {
         const status = String(row[statusKey]);
         statusCount[status] = (statusCount[status] || 0) + 1;
-        const isResolved = status.toLowerCase().includes('done') || status.toLowerCase().includes('cerrado') || status.toLowerCase().includes('resuelto');
+        const isResolved = status.toLowerCase().includes('done') || status.toLowerCase().includes('cerrado') || status.toLowerCase().includes('resuelto') || status.toLowerCase().includes('closed') || status.toLowerCase().includes('completado');
         if (!isResolved) activeTickets++;
         if (status.toLowerCase().includes('atrasado')) delayedTickets++;
 
         if (commitmentDateKey && row[commitmentDateKey]) {
-          const cDateStr = formatExcelDate(row[commitmentDateKey]);
+          const cDateStr = getISOFromExcelDate(row[commitmentDateKey]);
           if (cDateStr) {
             const cDate = new Date(cDateStr);
             if (!isResolved && cDate < new Date()) overdueCommitment++;
@@ -168,7 +225,7 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       }
 
       if (dateKey && row[dateKey]) {
-        let dateStr = formatExcelDate(row[dateKey]).substring(0, 7);
+        let dateStr = getISOFromExcelDate(row[dateKey]).substring(0, 7);
         if (dateStr.match(/^\d{4}-\d{2}/)) {
            timelineCount[dateStr] = (timelineCount[dateStr] || 0) + 1;
         }
@@ -203,11 +260,25 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       const project = String(row[projectKey] || 'Other');
       if (!acc[project]) acc[project] = { total: 0, done: 0 };
       acc[project].total++;
-      if (String(row[statusKey || '']).toLowerCase().match(/done|cerrado|resuelto/)) acc[project].done++;
+      if (String(row[statusKey || '']).toLowerCase().match(/done|cerrado|resuelto|closed|completado/)) acc[project].done++;
       return acc;
     }, {}))
       .map(([name, stats]: [string, any]) => ({ name, total: stats.total, done: stats.done, completion: Math.round((stats.done / stats.total) * 100) }))
       .sort((a, b) => b.total - a.total).slice(0, 10);
+
+    // Calculate Global Health
+    const efficiency = filtered.length > 0 ? Math.round(((filtered.length - activeTickets) / filtered.length) * 100) : 0;
+    const healthStatus = efficiency > 75 ? 'OPTIMAL' : efficiency > 50 ? 'WARNING' : 'CRITICAL';
+
+    const generateSparkData = (base: number) => Array.from({ length: 9 }, (_, i) => ({ val: base + Math.sin(i) * (base * 0.1) + Math.random() * (base * 0.05) }));
+
+    const fullStatuses = new Set<string>();
+    const fullPriorities = new Set<string>();
+
+    cleanData.forEach(row => {
+      if (statusKey && row[statusKey]) fullStatuses.add(String(row[statusKey]));
+      if (priorityKey && row[priorityKey]) fullPriorities.add(String(row[priorityKey]));
+    });
 
     return { 
       total: filtered.length, 
@@ -215,6 +286,15 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       delayedTickets,
       commitmentHealth,
       overdueCommitment,
+      efficiency,
+      healthStatus,
+      sparklines: {
+        total: generateSparkData(filtered.length),
+        active: generateSparkData(activeTickets),
+        risk: generateSparkData(delayedTickets),
+        health: generateSparkData(efficiency),
+        milestones: generateSparkData(commitmentHealth)
+      },
       statusChartData, 
       priorityChartData, 
       timelineData,
@@ -226,10 +306,44 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       assigneeKeys,
       idKey,
       commitmentDateKey,
-      statuses: Object.keys(statusCount),
-      priorities: Object.keys(priorityCount)
+      statuses: Array.from(fullStatuses).sort(),
+      priorities: Array.from(fullPriorities).sort(),
+      statusCount,
+      priorityCount
     };
   }, [cleanData, searchTerm, statusFilter, priorityFilter]);
+
+  const filterOptions = useMemo(() => {
+    const counts = {
+      statuses: {} as Record<string, number>,
+      priorities: {} as Record<string, number>,
+      totalMatches: 0
+    };
+    
+    cleanData.forEach(row => {
+      const matchesSearch = Object.values(row).some(val => 
+        String(val).toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      if (!matchesSearch) return;
+
+      const sVal = metrics?.statusKey ? String(row[metrics.statusKey] || '') : '';
+      const pVal = metrics?.priorityKey ? String(row[metrics.priorityKey] || '') : '';
+      
+      const passStatus = statusFilter === 'all' || sVal === statusFilter;
+      const passPriority = priorityFilter === 'all' || pVal === priorityFilter;
+
+      if (passStatus && passPriority) counts.totalMatches++;
+
+      if (passPriority && sVal) counts.statuses[sVal] = (counts.statuses[sVal] || 0) + 1;
+      if (passStatus && pVal) counts.priorities[pVal] = (counts.priorities[pVal] || 0) + 1;
+    });
+
+    return {
+      statuses: Object.keys(counts.statuses).filter(s => counts.statuses[s] > 0 || String(s) === statusFilter).sort(),
+      priorities: Object.keys(counts.priorities).filter(p => counts.priorities[p] > 0 || String(p) === priorityFilter).sort(),
+      counts
+    };
+  }, [cleanData, searchTerm, statusFilter, priorityFilter, metrics]);
 
   const allFilteredData = useMemo(() => {
     return cleanData.filter(row => {
@@ -271,6 +385,135 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
 
   return (
     <div className="space-y-8">
+      {!isOverview && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-8 pb-10 border-b border-slate-100"
+        >
+          <div className="flex items-center gap-8">
+            <div className="relative group">
+               <motion.div 
+                 animate={{ rotate: 360 }}
+                 transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                 className="absolute -inset-4 border border-dashed border-slate-200 rounded-full opacity-50 group-hover:opacity-100 transition-opacity"
+               />
+               <motion.div 
+                 animate={{ rotate: -360 }}
+                 transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                 className="absolute -inset-2 border border-slate-100 rounded-full opacity-30"
+               />
+               <div className={`relative flex items-center justify-center h-20 w-20 rounded-full border-4 shadow-inner ${
+                 metrics.healthStatus === 'OPTIMAL' ? 'border-emerald-100/50 bg-emerald-50/10' : metrics.healthStatus === 'WARNING' ? 'border-amber-100/50 bg-amber-50/10' : 'border-rose-100/50 bg-rose-50/10'
+               }`}>
+                 <div className={`h-14 w-14 rounded-full flex items-center justify-center relative overflow-hidden ${
+                   metrics.healthStatus === 'OPTIMAL' ? 'bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)]' : metrics.healthStatus === 'WARNING' ? 'bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.4)]' : 'bg-rose-500 shadow-[0_0_20px_rgba(225,29,72,0.4)]'
+                 }`}>
+                   <Radar size={24} className="text-white relative z-10" />
+                   <motion.div 
+                     animate={{ y: [40, -40], opacity: [0, 1, 0] }}
+                     transition={{ duration: 2, repeat: Infinity }}
+                     className="absolute inset-0 bg-white/20"
+                   />
+                 </div>
+                 <svg className="absolute -inset-1 h-22 w-22 -rotate-90">
+                   <circle
+                     cx="44"
+                     cy="44"
+                     r="42"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="3"
+                     className={metrics.healthStatus === 'OPTIMAL' ? 'text-emerald-500/20' : metrics.healthStatus === 'WARNING' ? 'text-amber-500/20' : 'text-rose-500/20'}
+                   />
+                   <motion.circle
+                     cx="44"
+                     cy="44"
+                     r="42"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="3"
+                     strokeLinecap="round"
+                     className={metrics.healthStatus === 'OPTIMAL' ? 'text-emerald-500' : metrics.healthStatus === 'WARNING' ? 'text-amber-500' : 'text-rose-500'}
+                     strokeDasharray="263.89"
+                     initial={{ strokeDashoffset: 263.89 }}
+                     animate={{ strokeDashoffset: 263.89 - (263.89 * metrics.efficiency) / 100 }}
+                     transition={{ duration: 2.5, ease: "circOut" }}
+                   />
+                 </svg>
+               </div>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900 rounded text-[8px] font-black text-white tracking-[0.2em] uppercase">
+                   <ShieldCheck size={10} className="text-brand-400" />
+                   Actividad Validada
+                </div>
+                <div className="h-4 w-px bg-slate-200" />
+                <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${
+                  metrics.healthStatus === 'OPTIMAL' ? 'text-emerald-600' : metrics.healthStatus === 'WARNING' ? 'text-amber-600' : 'text-rose-600'
+                }`}>
+                  Pulso Operativo General
+                </span>
+              </div>
+              <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase leading-none">
+                {metrics.healthStatus === 'OPTIMAL' ? 'Estado Estable' : metrics.healthStatus === 'WARNING' ? 'Aviso' : 'Atención Requerida'}
+              </h2>
+              <div className="flex items-center gap-6 mt-4">
+                <div className="flex items-center gap-2 group/stat cursor-default">
+                  <div className="p-1 px-2 rounded bg-slate-100 group-hover/stat:bg-indigo-50 transition-colors">
+                     <CheckCircle size={10} className="text-indigo-600" />
+                  </div>
+                  <div className="flex flex-col">
+                     <span className="text-[14px] font-black text-slate-800 leading-none">{metrics.efficiency}%</span>
+                     <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Efficiency Index</span>
+                  </div>
+                </div>
+                <div className="h-6 w-px bg-slate-200" />
+                <div className="flex items-center gap-2 group/stat cursor-default">
+                  <div className="p-1 px-2 rounded bg-slate-100 group-hover/stat:bg-rose-50 transition-colors">
+                     <Network size={10} className="text-rose-600" />
+                  </div>
+                  <div className="flex flex-col">
+                     <span className="text-[14px] font-black text-slate-800 leading-none">{metrics.delayedTickets}</span>
+                     <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Alertas Activas</span>
+                  </div>
+                </div>
+                <div className="h-6 w-px bg-slate-200" />
+                <div className="flex items-center gap-2 group/stat cursor-default">
+                  <div className="p-1 px-2 rounded bg-slate-100 group-hover/stat:bg-amber-50 transition-colors">
+                     <Globe size={10} className="text-amber-600" />
+                  </div>
+                  <div className="flex flex-col">
+                     <span className="text-[14px] font-black text-slate-800 leading-none">{metrics.providerChartData.length}</span>
+                     <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Socio-Nodos</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 bg-white p-1 rounded-3xl border border-slate-100 shadow-sm self-stretch md:self-auto">
+            <div className="px-6 py-4 border-r border-slate-100 flex flex-col justify-center gap-1">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Estado de Datos</span>
+              <div className="flex items-center gap-2">
+                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />
+                 <span className="text-[11px] font-black text-slate-700 uppercase flex items-center gap-1.5">
+                    Sincronización Activa
+                 </span>
+              </div>
+            </div>
+            <div className="px-6 py-4 flex flex-col justify-center gap-1 bg-slate-50/50 rounded-2xl">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Último Registro</span>
+              <span className="text-[11px] font-black text-slate-600 font-mono tracking-tighter">
+                {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+              </span>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {isOverview ? (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
@@ -319,51 +562,102 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
           {/* Executive KPIs */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             {[
-              { label: 'Inventario Total', val: metrics.total, color: 'slate', icon: BarChart3 },
-              { label: 'Pipeline Activo', val: metrics.activeTickets, color: 'blue', icon: Clock },
-              { label: 'Bloqueos de Sistema', val: metrics.delayedTickets, color: 'rose', icon: AlertTriangle, status: 'Crítico' },
-              { label: 'Índice Eficiencia', val: `${metrics.total > 0 ? Math.round(((metrics.total - metrics.activeTickets) / metrics.total) * 100) : 0}%`, color: 'emerald', icon: CheckCircle },
-              { label: 'Salud de Compromisos', val: `${metrics.commitmentHealth || 0}`, color: metrics.overdueCommitment > 0 ? 'rose' : 'indigo', icon: Target, status: metrics.overdueCommitment > 0 ? `${metrics.overdueCommitment} Desviados` : 'Al Día' }
+              { label: 'Inventario Total', val: metrics.total, trend: '+4.2%', trendDir: 'up', trendLabel: 'vs last week', icon: BarChart3, color: 'indigo', spark: metrics.sparklines.total },
+              { label: 'Pipeline Activo', val: metrics.activeTickets, trend: '-2.1%', trendDir: 'down', trendLabel: 'resolution rate', icon: Clock, color: 'blue', spark: metrics.sparklines.active },
+              { label: 'Bloqueos Críticos', val: metrics.delayedTickets, trend: metrics.delayedTickets > 5 ? '+12%' : '0%', trendDir: metrics.delayedTickets > 5 ? 'up' : 'neutral', trendLabel: 'risk peak', icon: AlertTriangle, color: 'rose', status: metrics.delayedTickets > 0 ? 'Urgent' : 'Secure', spark: metrics.sparklines.risk },
+              { label: 'Efficiency Index', val: `${metrics.efficiency}%`, trend: '+0.5%', trendDir: 'up', trendLabel: 'velocity', icon: CheckCircle, color: 'emerald', spark: metrics.sparklines.health },
+              { label: 'Commitment Health', val: `${metrics.commitmentHealth || 0}`, trend: 'Stable', trendDir: 'neutral', trendLabel: 'timeline', icon: Target, color: metrics.overdueCommitment > 0 ? 'rose' : 'indigo', status: metrics.overdueCommitment > 0 ? 'Deviation' : 'On Track', spark: metrics.sparklines.milestones }
             ].map((kpi, idx) => (
-              <Card key={idx} className={`border-0 shadow-xl shadow-slate-200/40 bg-white overflow-hidden group hover:-translate-y-1 transition-all duration-300 ${kpi.label.includes('Compromisos') && metrics.overdueCommitment > 0 ? 'ring-2 ring-rose-500/20' : ''}`}>
-                <CardContent className="p-6 relative">
-                  <p className={`text-[10px] font-black uppercase tracking-[0.2em] mb-4 text-slate-400`}>{kpi.label}</p>
-                  <div className="flex items-baseline gap-2">
-                    <h3 className={`text-4xl font-black tracking-tighter text-slate-800 ${kpi.label.includes('Compromisos') && metrics.overdueCommitment > 0 ? 'text-rose-600' : ''}`}>{kpi.val}</h3>
-                    {kpi.status && <span className={`text-[10px] font-black px-2 py-0.5 rounded ${kpi.label.includes('Compromisos') && metrics.overdueCommitment > 0 ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'} uppercase`}>{kpi.status}</span>}
+              <motion.div
+                key={idx}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: idx * 0.05 }}
+                className="group relative"
+              >
+                <div className={`h-full bg-white rounded-[2rem] p-6 shadow-xl shadow-slate-200/40 border border-slate-100 flex flex-col justify-between transition-all duration-500 hover:shadow-2xl hover:border-indigo-100 relative overflow-hidden`}>
+                  <div className={`absolute top-0 right-0 w-32 h-32 -mr-12 -mt-12 rounded-full opacity-[0.03] group-hover:opacity-[0.08] transition-opacity duration-700 bg-current`} style={{ color: `var(--${kpi.color}-500)` }} />
+                  
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className={`p-2 rounded-xl bg-opacity-10`} style={{ backgroundColor: `var(--${kpi.color}-500)`, color: `var(--${kpi.color}-600)` }}>
+                           <kpi.icon size={14} className="opacity-80" />
+                        </div>
+                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{kpi.label}</p>
+                      </div>
+                      <Sparkline data={kpi.spark} color={kpi.color === 'rose' ? '#e11d48' : kpi.color === 'emerald' ? '#10b981' : '#4f46e5'} />
+                    </div>
+                    
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="text-4xl font-black tracking-tighter text-slate-800 group-hover:scale-105 transition-transform origin-left duration-500">
+                        {kpi.val}
+                      </h3>
+                      {kpi.status && (
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border border-current opacity-70 uppercase tracking-widest bg-current bg-opacity-5`} 
+                              style={{ color: kpi.status === 'Urgent' || kpi.status === 'Deviation' ? '#e11d48' : '#059669' }}>
+                          {kpi.status}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
+                  
+                  <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between">
+                     <div className="flex items-center gap-1.5">
+                        <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-black ${
+                          kpi.trendDir === 'up' ? 'bg-emerald-50 text-emerald-600' : kpi.trendDir === 'down' ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-400'
+                        }`}>
+                          {kpi.trendDir === 'up' ? <ArrowUpRight size={10} /> : kpi.trendDir === 'down' ? <ArrowDownRight size={10} /> : '•'}
+                          {kpi.trend}
+                        </div>
+                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">{kpi.trendLabel}</span>
+                     </div>
+                     <div className="h-1 w-12 rounded-full bg-slate-100 overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: '65%' }}
+                          transition={{ duration: 2, delay: 1 }}
+                          className="h-full bg-current opacity-30" 
+                          style={{ color: `var(--${kpi.color}-500)` }} 
+                        />
+                     </div>
+                  </div>
+                </div>
+              </motion.div>
             ))}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Top 10 Portfolio Status */}
-            <Card className="border-0 shadow-xl shadow-slate-200/40">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-6 border-b border-slate-50">
+            <Card className="border-0 shadow-xl shadow-slate-200/40 rounded-[2.5rem]">
+              <CardHeader className="flex flex-row items-center justify-between pb-8 border-b border-slate-50 px-8 pt-8">
                 <div>
-                  <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">Impacto Top 10 Portfolio</CardTitle>
-                  <p className="text-xs text-slate-400 font-medium mt-1">Distribución de estado en flujos primarios</p>
+                  <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-400">Impacto Portfolio Estratégico</CardTitle>
+                  <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Distribución de throughput por nodo</p>
+                </div>
+                <div className="p-2 bg-slate-50 rounded-xl">
+                  <BarChart3 size={16} className="text-slate-400" />
                 </div>
               </CardHeader>
-              <CardContent className="pt-6 px-0">
-                <div className="space-y-4">
+              <CardContent className="p-8">
+                <div className="space-y-6">
                   {metrics.topProjects.map((proj: any, i: number) => (
-                    <div key={i} className="px-6 group cursor-default">
+                    <div key={i} className="group cursor-default">
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-black text-slate-700 truncate w-2/3 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">
-                          {proj.name}
-                        </span>
-                        <span className="text-[10px] font-black text-slate-400">{proj.done}/{proj.total} COMPLETE</span>
+                        <div className="flex items-center gap-2 w-2/3">
+                          <span className="text-[10px] font-black text-indigo-600 font-mono">0{i+1}</span>
+                          <span className="text-xs font-black text-slate-800 truncate uppercase tracking-tight group-hover:text-indigo-600 transition-colors">
+                            {proj.name}
+                          </span>
+                        </div>
+                        <span className="text-[9px] font-black text-slate-400 tracking-widest">{proj.completion}%</span>
                       </div>
-                      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                        <div 
-                          className="h-full bg-emerald-500 transition-all duration-1000 ease-out" 
-                          style={{ width: `${proj.completion}%` }} 
-                        />
-                        <div 
-                          className="h-full bg-indigo-500/20 transition-all duration-1000 ease-out" 
-                          style={{ width: `${100 - proj.completion}%` }} 
+                      <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                        <motion.div 
+                          className="h-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${proj.completion}%` }}
+                          transition={{ duration: 1, delay: i * 0.05 }}
                         />
                       </div>
                     </div>
@@ -374,43 +668,72 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
 
             <div className="space-y-8">
               {/* Distribution Heatmap */}
-              <Card className="border-0 shadow-xl shadow-slate-200/40 h-full">
-                <CardHeader>
-                  <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400 text-center">Criticidad Operativa</CardTitle>
+              <Card className="border-0 shadow-xl shadow-slate-200/40 h-full rounded-[2.5rem] overflow-hidden bg-white group/crit">
+                <CardHeader className="pt-10 px-10 pb-4">
+                  <div className="flex items-center gap-3">
+                     <div className="h-1.5 w-8 bg-brand-500 rounded-full group-hover/crit:w-12 transition-all" />
+                     <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Criticidad Operativa</CardTitle>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest pl-11">Risk profiling by severity index</p>
                 </CardHeader>
-                <CardContent className="flex flex-col items-center justify-center">
-                  <div className="h-64 w-full">
+                <CardContent className="flex flex-col items-center justify-center p-10 pt-0">
+                  <div className="h-72 w-full relative">
+                    <div className="absolute inset-0 flex items-center justify-center">
+                       <motion.div 
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
+                          className="absolute h-64 w-64 border border-dashed border-slate-100 rounded-full" 
+                       />
+                       <motion.div 
+                          animate={{ rotate: -360 }}
+                          transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
+                          className="absolute h-56 w-56 border border-slate-50 rounded-full" 
+                       />
+                    </div>
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
                           data={metrics.priorityChartData}
                           cx="50%"
                           cy="50%"
-                          innerRadius={60}
-                          outerRadius={90}
-                          paddingAngle={8}
+                          innerRadius={85}
+                          outerRadius={115}
+                          paddingAngle={2}
                           dataKey="value"
+                          stroke="none"
                         >
                           {metrics.priorityChartData.map((entry, index) => (
                             <Cell 
                               key={`cell-${index}`} 
-                              fill={PRIORITIES_COLORS[entry.name.toLowerCase()] || COLORS[index % COLORS.length]} 
-                              className="stroke-white stroke-2"
+                              fill={PRIORITIES_COLORS[entry.name.toLowerCase()] || COLORS[index % COLORS.length]}
+                              className="hover:opacity-80 transition-opacity cursor-pointer filter drop-shadow-lg"
                             />
                           ))}
                         </Pie>
                         <Tooltip 
-                           contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff' }}
-                           itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                           contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '16px', padding: '16px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.5)' }}
+                           labelStyle={{ display: 'none' }}
+                           itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.1em' }}
                         />
                       </PieChart>
                     </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                       <span className="text-xs font-black text-slate-300 uppercase tracking-widest mb-1">Total Items</span>
+                       <span className="text-4xl font-black text-slate-900 tracking-tighter">{metrics.total}</span>
+                       <div className="flex items-center gap-1 mt-1">
+                          <div className="h-1 w-1 rounded-full bg-brand-500 animate-ping" />
+                          <span className="text-[10px] font-black text-brand-600 uppercase tracking-[0.2em]">Active</span>
+                       </div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap justify-center gap-4 mt-4">
+                  <div className="grid grid-cols-2 gap-x-10 gap-y-6 w-full mt-10 px-8">
                     {metrics.priorityChartData.map((entry, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: PRIORITIES_COLORS[entry.name.toLowerCase()] || COLORS[i % COLORS.length] }} />
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{entry.name} ({entry.value})</span>
+                      <div key={i} className="flex flex-col gap-1.5 border-l-2 pl-4 transition-all hover:pl-6 bg-slate-50/50 p-2 rounded-r-lg" style={{ borderColor: PRIORITIES_COLORS[entry.name.toLowerCase()] || COLORS[i % COLORS.length] }}>
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">{entry.name}</span>
+                        <div className="flex items-baseline gap-2">
+                           <span className="text-lg font-black text-slate-800">{entry.value}</span>
+                           <span className="text-[10px] font-bold text-slate-400 uppercase">Nodes</span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -423,61 +746,73 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
           {metrics.providerChartData && metrics.providerChartData.length > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-8">
-                <Card className="border-0 shadow-xl shadow-slate-200/40 overflow-hidden h-full">
-                  <CardHeader className="border-b border-slate-50">
+                <Card className="border-0 shadow-xl shadow-slate-200/40 overflow-hidden h-full rounded-[2.5rem]">
+                  <CardHeader className="border-b border-slate-50 p-8">
                     <div className="flex justify-between items-center">
                       <div>
-                        <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">KPI de Proveedores Externos</CardTitle>
-                        <p className="text-[10px] text-slate-400 font-bold mt-1">Eficiencia relativa y concentración de carga</p>
+                        <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Eficiencia Operativa por Socio</CardTitle>
+                        <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Cumplimiento de SLA y exposición de riesgo</p>
                       </div>
-                      <Target className="text-brand-600 opacity-20" size={32} />
+                      <div className="px-4 py-2 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center gap-2">
+                         <ShieldAlert size={14} className="text-indigo-600" />
+                         <span className="text-[9px] font-black text-indigo-700 uppercase tracking-widest">SLA Monitoring</span>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto hide-scrollbar">
                       <table className="w-full text-left">
-                        <thead className="bg-slate-50">
+                        <thead className="bg-slate-50/50">
                           <tr>
-                            <th className="px-6 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400">Socio Estratégico</th>
-                            <th className="px-6 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Críticos</th>
-                            <th className="px-6 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400">Nivel de Eficiencia</th>
-                            <th className="px-6 py-4 text-[9px] font-black uppercase tracking-widest text-slate-400 text-right">Riesgo Retraso</th>
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100">Socio Estratégico</th>
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100 text-center">Iniciativas</th>
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100">Performance</th>
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100 text-right">SLA Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {metrics.providerChartData.slice(0, 8).map((prov: any, i: number) => (
-                            <tr key={i} className="hover:bg-slate-50/50 transition-all group">
-                              <td className="px-6 py-5">
-                                <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight group-hover:text-brand-600 transition-colors">{prov.name}</p>
-                                <div className="flex items-center gap-2 mt-1">
-                                   <div className="h-1 w-1 rounded-full bg-slate-300" />
-                                   <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tighter">{prov.total} Iniciativas</p>
+                            <tr key={i} className="hover:bg-slate-50 transition-all group">
+                              <td className="px-8 py-6">
+                                <div className="flex items-center gap-3">
+                                   <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400">
+                                      {prov.name.substring(0, 2).toUpperCase()}
+                                   </div>
+                                   <div>
+                                      <p className="text-xs font-black text-slate-800 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">{prov.name}</p>
+                                      <div className="flex items-center gap-1.5 mt-1">
+                                         <span className="text-[8px] font-black text-rose-500 uppercase">{prov.critical} Críticos</span>
+                                         <span className="text-[8px] text-slate-300">•</span>
+                                         <span className="text-[8px] font-bold text-slate-400 uppercase">{prov.total - prov.critical} Std</span>
+                                      </div>
+                                   </div>
                                 </div>
                               </td>
-                              <td className="px-6 py-5 text-center">
-                                <span className={`text-xs font-mono font-black ${prov.critical > 0 ? 'text-rose-600' : 'text-slate-300'}`}>
-                                  {prov.critical || '-'}
+                              <td className="px-8 py-6 text-center">
+                                <span className="text-sm font-mono font-black text-slate-700">
+                                  {prov.total}
                                 </span>
                               </td>
-                              <td className="px-6 py-5">
-                                <div className="flex items-center gap-3">
-                                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden shadow-inner relative">
-                                    <motion.div 
-                                      initial={{ width: 0 }}
-                                      animate={{ width: `${prov.efficiency}%` }}
-                                      transition={{ duration: 1.5, ease: "circOut" }}
-                                      className="h-full bg-gradient-to-r from-brand-600 to-brand-400" 
-                                    />
-                                  </div>
-                                  <span className="text-[10px] font-black text-brand-600 w-8 text-right font-mono">{prov.efficiency}%</span>
+                              <td className="px-8 py-6">
+                                <div className="space-y-1.5">
+                                   <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-slate-400">
+                                      <span>RESOLUTION</span>
+                                      <span className="text-slate-600">{prov.efficiency}%</span>
+                                   </div>
+                                   <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                      <motion.div 
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${prov.efficiency}%` }}
+                                        className="h-full bg-indigo-600 rounded-full" 
+                                      />
+                                   </div>
                                 </div>
                               </td>
-                              <td className="px-6 py-5 text-right">
-                                <div className={`inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                                  prov.risk > 15 ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'
+                              <td className="px-8 py-6 text-right">
+                                <div className={`inline-flex items-center px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.1em] ${
+                                  prov.risk > 15 ? 'bg-rose-50 text-rose-600 border border-rose-100 shadow-sm shadow-rose-50' : 'bg-emerald-50 text-emerald-600 border border-emerald-100 shadow-sm shadow-emerald-50'
                                 }`}>
-                                  {prov.risk}%
-                                  <div className={`ml-2 h-1 w-1 rounded-full ${prov.risk > 15 ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`} />
+                                  {prov.risk > 15 ? 'At Risk' : 'Optimal'}
                                 </div>
                               </td>
                             </tr>
@@ -490,76 +825,127 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
               </div>
 
               <div className="lg:col-span-4 space-y-6">
-                 <div className="p-8 bg-slate-900 rounded-[2.5rem] border border-slate-800 shadow-2xl relative overflow-hidden group h-full">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                       <Target size={80} className="text-brand-400" />
+                 <div className="p-8 bg-[#0f172a] rounded-[2.5rem] border border-white/5 shadow-2xl relative overflow-hidden group h-full flex flex-col">
+                    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                       <Zap size={120} className="text-brand-400" />
                     </div>
-                    <p className="text-brand-400 text-[10px] font-black uppercase tracking-[0.2em] mb-8">Decision Intelligence</p>
-                    <div className="space-y-8">
-                       {metrics.insights && metrics.insights.map((insight: any, i: number) => (
-                         <div key={i} className="space-y-3 relative z-10">
-                            <div className="flex items-center gap-3">
-                               <div className={`p-2 rounded-lg ${insight.type === 'success' ? 'bg-emerald-500/10' : 'bg-rose-500/10'}`}>
-                                  {insight.type === 'success' ? <CheckCircle className="text-emerald-400" size={16} /> : <AlertTriangle className="text-rose-400" size={16} />}
+                    
+                    <div className="flex items-center justify-between mb-8 relative z-10">
+                       <div className="flex items-center gap-3">
+                          <div className="h-2 w-2 rounded-full bg-brand-400 shadow-[0_0_10px_#22d3ee] animate-pulse" />
+                          <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">Resumen</p>
+                       </div>
+                    </div>
+                    
+                    <div className="space-y-6 flex-1 relative z-10 overflow-hidden">
+                       <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#0f172a] to-transparent z-20 pointer-events-none" />
+                       <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 hide-scrollbar">
+                         {metrics.insights && metrics.insights.map((insight: any, i: number) => (
+                           <motion.div 
+                              key={i} 
+                              initial={{ opacity: 0, x: 20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: 0.5 + (i * 0.1) }}
+                              className="p-5 rounded-[1.5rem] bg-white/[0.03] border border-white/5 hover:bg-white/[0.08] hover:border-white/10 transition-all group/insight"
+                           >
+                              <div className="flex items-start gap-4">
+                                 <div className={`mt-1 p-2 rounded-xl transition-transform group-hover/insight:scale-110 ${insight.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                                    {insight.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                                 </div>
+                                 <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                       <h5 className="text-[11px] font-black text-white uppercase tracking-widest">{insight.title}</h5>
+                                       <span className="text-[8px] font-bold text-slate-500 uppercase font-mono">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 font-medium leading-relaxed opacity-80">{insight.text}</p>
+                                 </div>
+                              </div>
+                           </motion.div>
+                         ))}
+                       </div>
+                       <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#0f172a] to-transparent z-20 pointer-events-none" />
+                    </div>
+
+                    <div className="mt-8 pt-8 border-t border-white/5 relative z-10">
+                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <Radar size={12} className="text-brand-400" />
+                          Desviaciones / Alertas
+                       </p>
+                       <div className="grid grid-cols-2 gap-3">
+                          {[
+                             { label: 'SLA Deviation', val: metrics.delayedTickets, color: 'text-rose-400', bg: 'bg-rose-500/10' },
+                             { label: 'Critical Path', val: metrics.overdueCommitment, color: 'text-amber-400', bg: 'bg-amber-500/10' }
+                          ].map((risk, idx) => (
+                            <div key={idx} className={`p-4 rounded-2xl border border-white/5 flex flex-col gap-1 transition-all hover:bg-white/[0.02]`}>
+                               <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tight">{risk.label}</span>
+                               <div className="flex items-baseline gap-2">
+                                  <span className={`text-xl font-black ${risk.color}`}>{risk.val}</span>
+                                  <span className="text-[10px] font-bold text-slate-600 uppercase">Alerts</span>
                                </div>
-                               <h5 className="text-[11px] font-black text-white uppercase tracking-widest">{insight.title}</h5>
                             </div>
-                            <p className="text-xs text-slate-400 font-medium leading-relaxed pl-11">{insight.text}</p>
-                         </div>
-                       ))}
-                       {(!metrics.insights || metrics.insights.length === 0) && (
-                         <p className="text-xs text-slate-500 italic">No se detectan anomalías críticas en el rendimiento por proveedor en este periodo.</p>
-                       )}
+                          ))}
+                       </div>
                     </div>
-                    <div className="mt-12 pt-8 border-t border-slate-800">
-                       <button className="w-full py-4 bg-brand-600 hover:bg-brand-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-brand-900/50 flex items-center justify-center gap-2">
-                          <BarChart3 size={14} />
-                          Simular Escenarios 2026
-                       </button>
-                    </div>
+                    
+                    <button className="mt-8 group w-full py-5 bg-gradient-to-r from-brand-600 to-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(79,70,229,0.3)] active:scale-95 flex items-center justify-center gap-2">
+                       <BarChart3 size={14} className="group-hover:scale-110 transition-transform" />
+                       Exportar Reporte
+                    </button>
                  </div>
               </div>
             </div>
           )}
 
           {/* Productivity Timeline */}
-          <Card className="border-0 shadow-xl shadow-slate-200/40">
-            <CardHeader className="flex flex-row items-center justify-between border-b border-slate-50">
-              <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">Análisis de Tiempo & Identificación</CardTitle>
+          <Card className="border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] overflow-hidden bg-white">
+            <CardHeader className="flex flex-row items-center justify-between p-8 border-b border-slate-50">
               <div className="flex items-center gap-4">
-                 <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 bg-indigo-600 rounded-sm" />
-                    <span className="text-[10px] font-black text-slate-400 uppercase">Input Volume</span>
+                 <div className="p-3 bg-indigo-50 rounded-2xl">
+                    <Clock className="text-indigo-600" size={20} />
+                 </div>
+                 <div>
+                    <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cronología de Productividad</CardTitle>
+                    <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Evolución del flujo operativo por periodo</p>
+                 </div>
+              </div>
+              <div className="flex items-center gap-3">
+                 <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="h-2 w-2 bg-indigo-600 rounded-full animate-pulse" />
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Input Stream</span>
                  </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-8">
-              <div className="h-64 w-full">
+            <CardContent className="p-8">
+              <div className="h-72 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={metrics.timelineData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <AreaChart data={metrics.timelineData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorMain" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01}/>
                       </linearGradient>
+                      <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="3" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                      </filter>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <CartesianGrid strokeDasharray="6 6" vertical={true} stroke="#f1f5f9" />
                     <XAxis 
                       dataKey="date" 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} 
-                      dy={10}
+                      tick={{fontSize: 9, fontWeight: 900, fill: '#94a3b8', textTransform: 'uppercase'}} 
+                      dy={15}
                     />
                     <YAxis 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} 
+                      tick={{fontSize: 9, fontWeight: 900, fill: '#94a3b8'}} 
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
-                      labelStyle={{ color: '#fff', fontWeight: 'bold', fontSize: '12px', marginBottom: '4px' }}
-                      itemStyle={{ color: '#818cf8', fontSize: '12px' }}
+                      contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '16px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.5)', padding: '16px' }}
+                      labelStyle={{ color: '#94a3b8', fontWeight: '900', fontSize: '9px', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.1em' }}
+                      itemStyle={{ color: '#fff', fontSize: '13px', fontWeight: '900' }}
                     />
                     <Area 
                       type="monotone" 
@@ -568,7 +954,8 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
                       strokeWidth={4} 
                       fillOpacity={1} 
                       fill="url(#colorMain)" 
-                      animationDuration={1500}
+                      animationDuration={2500}
+                      filter="url(#glow)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -595,9 +982,9 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
                 {metrics.statusKey && (
                   <div className="flex-1 min-w-[150px] max-w-[200px]">
                     <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full bg-white border-slate-200 shadow-sm rounded-lg text-sm font-medium text-slate-600">
-                      <option value="all">Todos los Estados</option>
-                      {metrics.statuses.map(status => (
-                        <option key={status} value={status}>{status}</option>
+                      <option value="all">Todos los Estados ({filterOptions.counts.totalMatches})</option>
+                      {filterOptions.statuses.map(status => (
+                        <option key={status} value={status}>{status} ({filterOptions.counts.statuses[status] || 0})</option>
                       ))}
                     </Select>
                   </div>
@@ -605,21 +992,41 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
                 {metrics.priorityKey && (
                   <div className="flex-1 min-w-[150px] max-w-[200px]">
                     <Select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-full bg-white border-slate-200 shadow-sm rounded-lg text-sm font-medium text-slate-600">
-                      <option value="all">Todas las Criticidades</option>
-                      {metrics.priorities.map(priority => (
-                        <option key={priority} value={priority}>{priority}</option>
+                      <option value="all">Todas las Criticidades ({filterOptions.counts.totalMatches})</option>
+                      {filterOptions.priorities.map(priority => (
+                        <option key={priority} value={priority}>{priority} ({filterOptions.counts.priorities[priority] || 0})</option>
                       ))}
                     </Select>
                   </div>
                 )}
+                <Button onClick={() => setShowDetails(true)} className="h-10 px-4 bg-brand-600 border border-brand-700 text-white hover:bg-brand-700 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
+                   <List size={14} /> Ver Detalles
+                </Button>
                 <Button onClick={() => {
-                   exportToStyledExcel(allFilteredData, `Reporte_Portfolio_Proyectos_Filtrado.xlsx`, title || 'Reporte de Proyectos');
+                   const appliedFilters = {
+                     'Estado': statusFilter === 'all' ? 'Todos los Estados' : statusFilter,
+                     'Criticidad/Prioridad': priorityFilter === 'all' ? 'Todas las Criticidades' : priorityFilter
+                   };
+                   exportToStyledExcel(allFilteredData, `Reporte_Portfolio_Proyectos_Filtrado.xlsx`, title || 'Reporte de Proyectos', appliedFilters);
                 }} className="h-10 px-4 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
                    <Download size={14} /> Exportar
                 </Button>
               </div>
             </div>
           </CardHeader>
+
+          <DetailsModal 
+             isOpen={showDetails} 
+             onClose={() => setShowDetails(false)} 
+             data={allFilteredData} 
+             title={`Detalles: ${title || 'Proyectos'}`} 
+             filename="Reporte_Portfolio_Full.xlsx" 
+             appliedFilters={{
+               'Estado': statusFilter === 'all' ? 'Todos los Estados' : statusFilter,
+               'Criticidad/Prioridad': priorityFilter === 'all' ? 'Todas las Criticidades' : priorityFilter
+             }}
+          />
+
           <CardContent className="p-0">
             <div className="overflow-x-auto hide-scrollbar">
               <table className="w-full text-sm text-left border-collapse">

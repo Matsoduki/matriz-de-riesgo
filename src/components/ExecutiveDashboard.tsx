@@ -120,7 +120,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
     }).length;
     
     const completionRate = jira2025.filter(j => 
-       String(j.Status || '').toLowerCase().match(/done|resuelto/)
+       String(j.Status || '').toLowerCase().match(/done|resuelto|cerrado|closed|completado/)
     ).length / (jira2025.length || 1);
 
     const securityPostcheck = 1 - (criticalSecurity / (mandoYControl.length || 1));
@@ -128,11 +128,11 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
 
     const jira2026Metrics = {
       total: jira2026.length,
-      active: jira2026.filter(j => !String(j.Status || '').toLowerCase().match(/done|resuelto/)).length,
-      completed: jira2026.filter(j => String(j.Status || '').toLowerCase().match(/done|resuelto/)).length,
+      active: jira2026.filter(j => !String(j.Status || '').toLowerCase().match(/done|resuelto|cerrado|closed|completado/)).length,
+      completed: jira2026.filter(j => String(j.Status || '').toLowerCase().match(/done|resuelto|cerrado|closed|completado/)).length,
     };
 
-    const resolvedSensor = sensor.filter(s => String(s.Status || '').toLowerCase().match(/cerrado|resuelto|done/)).length;
+    const resolvedSensor = sensor.filter(s => String(s.Status || '').toLowerCase().match(/cerrado|resuelto|done|closed|completado/)).length;
     const weeklyPerformance = {
       resolved: Math.max(resolvedSensor, Math.round(resolvedSensor / 4)),
       overdue: sensor.filter(s => {

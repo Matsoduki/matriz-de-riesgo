@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // Utility to export a JSON array to styled Excel (.xlsx) via ExcelJS
-export async function exportToStyledExcel(data: any[], filename: string, title?: string) {
+export async function exportToStyledExcel(data: any[], filename: string, title?: string, appliedFilters?: Record<string, string>) {
   if (!data || !data.length) return;
 
   const workbook = new ExcelJS.Workbook();
@@ -51,11 +51,32 @@ export async function exportToStyledExcel(data: any[], filename: string, title?:
     worksheet.mergeCells(1, 1, 1, headers.length > 2 ? Math.min(6, headers.length) : headers.length);
     titleRow.height = 40;
     
-    // Add a spacer row
-    worksheet.spliceRows(2, 0, []);
-    worksheet.getRow(2).height = 10;
-    startRow = 3;
+    startRow = 2;
   }
+
+  if (appliedFilters && Object.keys(appliedFilters).length > 0) {
+    const filterKeys = Object.keys(appliedFilters);
+    worksheet.spliceRows(startRow, 0, []);
+    const subtitleRow = worksheet.getRow(startRow);
+    subtitleRow.getCell(1).value = 'Filtros Aplicados:';
+    subtitleRow.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF475569' } };
+    startRow++;
+
+    filterKeys.forEach((key) => {
+      worksheet.spliceRows(startRow, 0, []);
+      const filterRow = worksheet.getRow(startRow);
+      filterRow.getCell(1).value = `${key}:`;
+      filterRow.getCell(1).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF64748B' } };
+      filterRow.getCell(2).value = appliedFilters[key];
+      filterRow.getCell(2).font = { name: 'Arial', size: 11, color: { argb: 'FF0F172A' } };
+      startRow++;
+    });
+  }
+
+  // Add a spacer row before headers
+  worksheet.spliceRows(startRow, 0, []);
+  worksheet.getRow(startRow).height = 10;
+  startRow++;
 
   // Style Header Row
   const headerRow = worksheet.getRow(startRow);

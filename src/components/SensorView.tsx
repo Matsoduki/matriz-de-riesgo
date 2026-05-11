@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Input, Select, Modal, Button } from './ui';
 import { findColumnKey, formatExcelDate } from '../lib/excelParser';
 import { exportToStyledExcel } from '../lib/utils';
-import { Search, Activity, Database, Radio, CheckCircle, Clock, Filter, AlertCircle, Layout, Download } from 'lucide-react';
+import { Search, Activity, Database, Radio, CheckCircle, Clock, Filter, AlertCircle, Layout, Download, List } from 'lucide-react';
+import { DetailsModal } from './DetailsModal';
 import {
   AreaChart,
   Area,
@@ -25,6 +26,7 @@ interface Props {
 export default function SensorView({ data, isOverview }: Props) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showDetails, setShowDetails] = useState(false);
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -75,14 +77,14 @@ export default function SensorView({ data, isOverview }: Props) {
       );
       const statusVal = String(row[statusKey || 'Status'] || '').toLowerCase();
       const matchesStatus = statusFilter === 'all' || 
-        (statusFilter === 'closed' && (statusVal.includes('clos') || statusVal.includes('cerrado'))) ||
-        (statusFilter === 'open' && !(statusVal.includes('clos') || statusVal.includes('cerrado')));
+        (statusFilter === 'closed' && (statusVal.includes('clos') || statusVal.includes('cerrado') || statusVal.includes('resuelto') || statusVal.includes('done') || statusVal.includes('completado'))) ||
+        (statusFilter === 'open' && !(statusVal.includes('clos') || statusVal.includes('cerrado') || statusVal.includes('resuelto') || statusVal.includes('done') || statusVal.includes('completado')));
       return matchesSearch && matchesStatus;
     });
 
     const closed = filtered.filter(t => {
       const s = String(t[statusKey || 'Status'] || '').toLowerCase();
-      return s.includes('clos') || s.includes('cerrado') || s.includes('resuelto');
+      return s.includes('clos') || s.includes('cerrado') || s.includes('resuelto') || s.includes('done') || s.includes('completado');
     }).length;
 
     const withinSla = filtered.filter(t => {
@@ -127,6 +129,26 @@ export default function SensorView({ data, isOverview }: Props) {
     };
   }, [cleanData, searchTerm, statusFilter]);
 
+  const globalCounts = useMemo(() => {
+    let closedCount = 0;
+    let openCount = 0;
+    let totalCount = 0;
+
+    cleanData.forEach(row => {
+      const matchesSearch = Object.values(row).some(val => 
+        String(val).toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      if (matchesSearch) {
+        totalCount++;
+        const statusVal = String(row[metrics?.statusKey || 'Status'] || '').toLowerCase();
+        const isClosed = statusVal.includes('clos') || statusVal.includes('cerrado') || statusVal.includes('resuelto') || statusVal.includes('done') || statusVal.includes('completado');
+        if (isClosed) closedCount++;
+        else openCount++;
+      }
+    });
+    return { all: totalCount, closed: closedCount, open: openCount };
+  }, [cleanData, searchTerm, metrics]);
+
   const allFilteredData = useMemo(() => {
     return cleanData.filter(row => {
       const matchesSearch = Object.values(row).some(val => 
@@ -135,8 +157,8 @@ export default function SensorView({ data, isOverview }: Props) {
       
       const statusVal = String(row[metrics?.statusKey || 'Status'] || '').toLowerCase();
       const matchesStatus = statusFilter === 'all' || 
-        (statusFilter === 'closed' && (statusVal.includes('clos') || statusVal.includes('cerrado'))) ||
-        (statusFilter === 'open' && !(statusVal.includes('clos') || statusVal.includes('cerrado')));
+        (statusFilter === 'closed' && (statusVal.includes('clos') || statusVal.includes('cerrado') || statusVal.includes('resuelto') || statusVal.includes('done') || statusVal.includes('completado'))) ||
+        (statusFilter === 'open' && !(statusVal.includes('clos') || statusVal.includes('cerrado') || statusVal.includes('resuelto') || statusVal.includes('done') || statusVal.includes('completado')));
 
       return matchesSearch && matchesStatus;
     });
@@ -154,7 +176,7 @@ export default function SensorView({ data, isOverview }: Props) {
   const getStatusBadge = (status: string) => {
     const s = String(status).toLowerCase();
     if (s.includes('open') || s.includes('abierto')) return 'bg-blue-100 text-blue-700 border-blue-200';
-    if (s.includes('clos') || s.includes('cerrado') || s.includes('resuelto')) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    if (s.includes('clos') || s.includes('cerrado') || s.includes('resuelto') || s.includes('done') || s.includes('completado')) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
     if (s.includes('pend') || s.includes('espera')) return 'bg-amber-100 text-amber-700 border-amber-200';
     return 'bg-slate-100 text-slate-600 border-slate-200';
   };
@@ -363,18 +385,36 @@ export default function SensorView({ data, isOverview }: Props) {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="h-9 text-xs border-slate-200 bg-white"
               >
-                <option value="all">Todos los estados</option>
-                <option value="open">Abiertos</option>
-                <option value="closed">Cerrados / Resueltos</option>
+                <option value="all">Todos los estados ({globalCounts.all})</option>
+                <option value="open">Abiertos ({globalCounts.open})</option>
+                <option value="closed">Cerrados / Resueltos ({globalCounts.closed})</option>
               </Select>
+              <Button onClick={() => setShowDetails(true)} className="h-9 px-4 bg-brand-600 border border-brand-700 text-white hover:bg-brand-700 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
+                 <List size={14} /> Ver Detalles
+              </Button>
               <Button onClick={() => {
-                   exportToStyledExcel(allFilteredData, `Reporte_Sensores_Filtrado.xlsx`, 'Reporte de Sensores');
+                   const appliedFilters = {
+                     'Estado': statusFilter === 'all' ? 'Todos los Estados' : (statusFilter === 'open' ? 'Abiertos' : 'Cerrados / Resueltos')
+                   };
+                   exportToStyledExcel(allFilteredData, `Reporte_Sensores_Filtrado.xlsx`, 'Reporte de Sensores', appliedFilters);
               }} className="h-9 px-4 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
                    <Download size={14} /> Exportar
               </Button>
             </div>
           </div>
         </CardHeader>
+
+        <DetailsModal 
+           isOpen={showDetails} 
+           onClose={() => setShowDetails(false)} 
+           data={allFilteredData} 
+           title="Detalles de Sensores (Full Data)" 
+           filename="Reporte_Sensores_Full.xlsx" 
+           appliedFilters={{
+             'Estado': statusFilter === 'all' ? 'Todos los Estados' : (statusFilter === 'open' ? 'Abiertos' : 'Cerrados / Resueltos')
+           }}
+        />
+
         <CardContent className="p-0 overflow-x-auto hide-scrollbar">
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 border-b border-slate-200">
