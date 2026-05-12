@@ -16,7 +16,8 @@ import {
   AlertCircle,
   FileSearch,
   Target,
-  TrendingUp
+  TrendingUp,
+  Shield
 } from 'lucide-react';
 import { Button, Card, CardContent } from './ui';
 import JiraView from './JiraView';
@@ -107,17 +108,37 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
 
     const totalItems = jira2025.length + sensor.length + mandoYControl.length;
     
-    // Better critical logic
+    // Better critical logic (handles dashes and N/A correctly)
     const criticalSecurity = mandoYControl.filter(m => {
-      const p = String(m.Prioridad || m.Criticidad || '').toLowerCase();
+      const p = String(m.Prioridad || m.Criticidad || m['CRITICIDAD'] || '').toLowerCase().trim();
+      if (p === '-' || p === '' || p === 'n/a' || p === 'no aplica') return false;
       return (p.includes('alta') || p.includes('criti') || p.includes('high')) && !p.includes('no critico') && !p.includes('no crítico');
     }).length;
 
     // Detect Governance Gaps for sidebar alert
     const governanceGapsCount = mandoYControl.filter(m => {
-      const project = String(m['PROYECTO O TAREA'] || m['Proyecto'] || '').trim();
-      return project && !SCOPE_MAPPING[project];
+      const project = String(m['PROYECTO O TAREA'] || m['Proyecto'] || m['Tarea'] || '').trim().toLowerCase();
+      // Skip if it's just a dash or empty
+      if (!project || project === '-' || project === 'n/a') return false;
+      
+      let mapped = false;
+      for (const key of Object.keys(SCOPE_MAPPING)) {
+        if (project.includes(key.toLowerCase())) {
+          mapped = true;
+          break;
+        }
+      }
+      return !mapped;
     }).length;
+
+    // Governance coverage %
+    const validMandoItems = mandoYControl.filter(m => {
+      const p = String(m['PROYECTO O TAREA'] || m['Proyecto'] || m['Tarea'] || '').trim();
+      return p && p !== '-';
+    }).length;
+    const governanceCoverage = validMandoItems > 0 
+      ? Math.round(((validMandoItems - governanceGapsCount) / validMandoItems) * 100) 
+      : 0;
     
     const completionRate = jira2025.filter(j => 
        String(j.Status || '').toLowerCase().match(/done|resuelto|cerrado|closed|completado/)
@@ -142,7 +163,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
       compliance: (resolvedSensor / (sensor.length || 1)) * 100
     };
 
-    return { totalItems, criticalSecurity, globalHealthIndex, jira2026Metrics, weeklyPerformance, governanceGaps: governanceGapsCount };
+    return { totalItems, criticalSecurity, globalHealthIndex, jira2026Metrics, weeklyPerformance, governanceGaps: governanceGapsCount, governanceCoverage };
   }, [data]);
 
   const handleExport = () => {
@@ -186,9 +207,12 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
         <div className="p-8">
           <h1 className="text-xl font-black tracking-tight text-slate-900 flex items-center gap-2">
             <div className="h-8 w-8 bg-brand-600 rounded-lg flex items-center justify-center text-white">
-              <BarChart3 size={18} />
+              <Shield size={18} />
             </div>
-            <span>Gestión<span className="text-brand-600">Corp</span></span>
+            <div className="flex flex-col">
+              <span className="text-lg font-black tracking-tighter leading-none">MAC<span className="text-brand-600">.</span></span>
+              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Matriz Actividades Ciberseguridad</span>
+            </div>
           </h1>
         </div>
         
@@ -237,7 +261,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           />
           <NavItem 
             icon={<ShieldAlert size={18} />} 
-            label="Mando & Control de Ciberseguridad" 
+            label="Matriz MAC (Ciberseguridad)" 
             isActive={currentView === 'mandoYControl'} 
             onClick={() => setCurrentView('mandoYControl')} 
             alert={globalMetrics.criticalSecurity > 0}
@@ -250,7 +274,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           />
           <NavItem 
             icon={<FileSearch size={18} />} 
-            label="Gap Finder" 
+            label="Gap Intelligence" 
             isActive={currentView === 'gapFinder'} 
             onClick={() => setCurrentView('gapFinder')} 
             alert={globalMetrics.governanceGaps > 0}
@@ -276,8 +300,8 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
              <h3 className="text-xl font-bold text-slate-900 tracking-tight">
                {currentView === 'overview' ? 'Resumen Ejecutivo' :
                 currentView === 'sensor' ? 'Gestión de Telemetría' :
-                currentView === 'mandoYControl' ? 'Mando & Control Ciberseguridad' :
-                currentView === 'gapFinder' ? 'Gestión de Gaps & Mitigación' :
+                currentView === 'mandoYControl' ? 'Resiliencia de Postura MAC' :
+                currentView === 'gapFinder' ? 'Gap Intelligence & Bestiary Mapping' :
                 currentView === 'teamInitiatives' ? 'Desempeño Iniciativas 2026' :
                 currentView === 'teamSupport' ? 'Desempeño Soporte Técnico' :
                 currentView === 'teamPerformance' ? 'Desempeño de Equipo' :
@@ -365,11 +389,11 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
                           delay={0.2}
                        />
                        <StatCard 
-                          title="Efectividad GRC"
-                          value={`${Math.round(globalMetrics.weeklyPerformance.compliance)}%`}
-                          subvalue="Normalizado"
-                          subtitle="Control de Calidad"
-                          icon={CheckCircle2}
+                          title="Gobernanza Cyber"
+                          value={`${globalMetrics.governanceCoverage}%`}
+                          subvalue={globalMetrics.governanceGaps > 0 ? `-${globalMetrics.governanceGaps} Gaps` : "Mapeo Total"}
+                          subtitle="Alineación Estratégica"
+                          icon={Target}
                           color="bg-emerald-50 text-emerald-600"
                           delay={0.3}
                        />

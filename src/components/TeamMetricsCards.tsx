@@ -14,51 +14,63 @@ interface Props {
     timeCompliance?: number;
     avgMTTRDisplay?: string;
   };
+  onCardClick?: (type: MetricType) => void;
 }
 
-export const TeamMetricsCards: React.FC<Props> = ({ metrics }) => {
+import { MetricType } from './AnalyticalBreakdownPanel';
+
+export const TeamMetricsCards: React.FC<Props> = ({ metrics, onCardClick }) => {
   const cards = [
     {
       label: "Fuerza Operativa",
       val: metrics.teamSize,
       sub: "Miembros Activos",
       icon: Users,
-      color: "indigo"
+      color: "indigo",
+      type: null
     },
     {
       label: "Efficiency Global",
       val: `${metrics.avgEfficiency}%`,
       sub: "Ponderado Vol/Vel",
       icon: Zap,
-      color: "brand"
+      color: "brand",
+      type: 'efficiency' as MetricType
     },
     {
       label: "Throughput",
       val: metrics.throughput,
       sub: "Cierres / Semana",
       icon: Activity,
-      color: "emerald"
+      color: "emerald",
+      type: 'throughput' as MetricType
     },
     {
       label: "Avg Lead Time",
       val: metrics.avgMTTRDisplay || "N/A",
       sub: "MTTR Global",
       icon: Clock,
-      color: "blue"
+      color: "blue",
+      type: 'aging' as MetricType
     },
     {
       label: "SLA Global",
       val: `${metrics.timeCompliance}%`,
       sub: "Tickets On-Time",
       icon: Timer,
-      color: "amber"
+      color: "amber",
+      type: 'sla' as MetricType
     }
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
       {cards.map((card, i) => (
-        <Card key={i} className="border-0 shadow-xl bg-white rounded-[2.5rem] p-8 relative overflow-hidden group hover:scale-[1.02] transition-all">
+        <Card 
+          key={i} 
+          onClick={() => card.type && onCardClick?.(card.type)}
+          className={`border-0 shadow-xl bg-white rounded-[2.5rem] p-8 relative overflow-hidden group hover:scale-[1.02] transition-all ${card.type ? 'cursor-pointer' : ''}`}
+        >
           <div className={`absolute top-0 right-0 p-8 opacity-5 text-${card.color}-500 group-hover:rotate-12 transition-transform`}>
             <card.icon size={80} />
           </div>

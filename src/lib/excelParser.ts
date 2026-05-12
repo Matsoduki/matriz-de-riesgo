@@ -108,15 +108,31 @@ export const parseExcelFile = async (file: File): Promise<DashboardData> => {
         const rejected: any[] = [];
         const processSheet = (data: any[]) => {
           return data.filter(row => {
-            const hasData = Object.values(row).some(v => v !== "" && v !== null && v !== undefined);
+            // Check if any value is not empty, not just whitespace, and not just a dash
+            const hasData = Object.values(row).some(v => {
+              const str = String(v || "").trim();
+              return str !== "" && str !== "-" && str.toLowerCase() !== "n/a";
+            });
             if (!hasData) return false;
             
-            // Minimal requirement for quality filtering
-            const hasIdentifier = findColumnKey(row, ["nro", "numero", "id", "key"]);
-            if (!hasIdentifier) {
-              // rejected.push(row); // For now just log silently or add to metadata
-              return true; 
-            }
+            // Identifying fields
+            const project = String(row['PROYECTO O TAREA'] || row['Proyecto'] || row['Tarea'] || '').trim();
+            const id = String(row['Vulnerabilidades'] || row['GAP'] || row['Identificación'] || row['Numero'] || '').trim();
+            const activity = String(row['Actividad'] || row['Acciones'] || row['Sitación Actual'] || row['Description'] || '').trim();
+            
+            const isPlaceholder = (val: string) => {
+              const v = val.toLowerCase();
+              return v === "" || v === "-" || v === "n/a" || v === "no aplica" || v === ".";
+            };
+
+            // A row is valid if it has real textual content in at least one identifying column
+            const hasMainContent = 
+              (!isPlaceholder(project) && project.length > 2) || 
+              (!isPlaceholder(id) && id.length > 2) ||
+              (!isPlaceholder(activity) && activity.length > 4);
+            
+            if (!hasMainContent) return false;
+
             return true;
           });
         };
@@ -177,6 +193,23 @@ export const getISOWeek = (dateVal: any): string => {
   if (isNaN(d.getTime())) return "S/F";
   const week = getWeekNumber(d);
   return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+};
+
+export const getWeekLabel = (dateVal: any): string => {
+  const iso = getISOFromExcelDate(dateVal);
+  if (!iso) return "S/F";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "S/F";
+  
+  const week = getWeekNumber(d);
+  const startOfWeek = new Date(d);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday as start
+  startOfWeek.setDate(diff);
+  
+  const formatter = new Intl.DateTimeFormat('es-AR', { month: 'short', day: 'numeric' });
+  const yearSuffix = startOfWeek.getFullYear().toString().slice(-2);
+  return `W${week} (${formatter.format(startOfWeek)} '${yearSuffix})`;
 };
 
 /**

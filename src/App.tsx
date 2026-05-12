@@ -8,6 +8,19 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  React.useEffect(() => {
+    const handleZoom = () => {
+      if (window.innerWidth < 1400) {
+        (document.body.style as any).zoom = "0.75";
+      } else {
+        (document.body.style as any).zoom = "1";
+      }
+    };
+    handleZoom();
+    window.addEventListener('resize', handleZoom);
+    return () => window.removeEventListener('resize', handleZoom);
+  }, []);
+
   const handleUpload = async (file: File) => {
     setIsLoading(true);
     setError(null);

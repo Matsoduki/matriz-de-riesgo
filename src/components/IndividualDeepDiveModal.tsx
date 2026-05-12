@@ -85,7 +85,7 @@ export const IndividualDeepDiveModal: React.FC<Props> = ({ member, onClose }) =>
           <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
              <div className="flex items-center gap-2 mb-4">
                 <BrainCircuit size={16} className="text-brand-500" />
-                <span className="text-[11px] font-black uppercase text-slate-800 underline decoration-brand-200 decoration-2 underline-offset-4">Diagnóstico Gemini Copilot</span>
+                <span className="text-[11px] font-black uppercase text-slate-800 underline decoration-brand-200 decoration-2 underline-offset-4">Diagnóstico de Desempeño</span>
              </div>
              <p className="text-[12px] text-slate-600 font-medium leading-relaxed">
                 {member.compliance > 90 

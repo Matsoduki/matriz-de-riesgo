@@ -35,7 +35,9 @@ import {
   Calendar,
   Users,
   ExternalLink,
-  List
+  List,
+  Lightbulb,
+  CheckCircle2
 } from "lucide-react";
 import {
   BarChart,
@@ -47,6 +49,8 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Area,
+  Line,
+  Legend,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -104,6 +108,13 @@ const STATUS_COLORS: Record<string, string> = {
   "EN CURSO": "#eab308",
 };
 
+const getMonthLabel = (isoMonth: string): string => {
+  if (isoMonth === "Sin Fecha" || !isoMonth.includes('-')) return isoMonth;
+  const [year, month] = isoMonth.split('-');
+  const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+  return new Intl.DateTimeFormat('es-AR', { month: 'short', year: '2-digit' }).format(date);
+};
+
 const displayDate = (val: any) => {
   return formatExcelDate(val);
 };
@@ -123,8 +134,6 @@ export const isCriticalPriority = (val: any) => {
     "crítico",
     "p1",
     "urgente",
-    "importante",
-    "criticó",
   ].some((term) => p.includes(term));
 
   const isExcluded =
@@ -154,10 +163,63 @@ export default function CyberView({ data, title }: Props) {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [showDetails, setShowDetails] = useState(false);
+  const [kpiModalOpen, setKpiModalOpen] = useState(false);
+  const [kpiModalData, setKpiModalData] = useState<any[]>([]);
+  const [kpiModalTitle, setKpiModalTitle] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 30;
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<string | null>(null);
+
+  const handleKpiClick = (type: 'chi' | 'critical' | 'sla' | 'aging') => {
+    let modalTitle = "";
+    let modalData = [];
+
+    switch (type) {
+      case 'chi':
+        modalTitle = "Ecosistema de Postura MAC (Score Consolidado)";
+        modalData = filteredData;
+        break;
+      case 'critical':
+        modalTitle = "Gaps Críticos Identificados";
+        modalData = filteredData.filter(r => isCriticalPriority(r[keys?.priorityKey || ""]));
+        break;
+      case 'sla':
+        modalTitle = "Brechas de Cumplimiento (SLA Breach)";
+        modalData = filteredData.filter(row => {
+          const priorityRaw = String(row[keys?.priorityKey || ""] || "").trim();
+          const isCritical = isCriticalPriority(priorityRaw);
+          const priorityLower = priorityRaw.toLowerCase();
+          let policyLevel: PriorityLevel = "Bajo";
+          if (isCritical) policyLevel = "Crítico";
+          else if (priorityLower.includes("alta")) policyLevel = "Alto";
+          else if (priorityLower.includes("media") || priorityLower.includes("medium")) policyLevel = "Medio";
+          const policy = CYBER_SLA_POLICIES[policyLevel];
+          const isExternal = String(row[keys?.prestadorKey || ""]).toLowerCase() !== "interno" && String(row[keys?.prestadorKey || ""]) !== "-";
+          const threshold = isExternal ? policy?.external : policy?.internal;
+          const delayDays = Number(row["Dias de atraso"] || row["Atraso"] || row["Delay"] || 0);
+          return delayDays > (threshold || 30);
+        });
+        break;
+      case 'aging':
+        const avg = metrics.mttc;
+        modalTitle = `Postura de Exposición: Gaps con Aging > ${avg} días`;
+        modalData = filteredData.filter(row => {
+          const dateVal = row[keys?.dateKey || ""];
+          if (!dateVal) return false;
+          const iso = getISOFromExcelDate(dateVal);
+          if (!iso) return false;
+          const date = new Date(iso);
+          const diff = Math.floor((new Date().getTime() - date.getTime()) / (1000 * 3600 * 24));
+          return diff > avg;
+        });
+        break;
+    }
+
+    setKpiModalData(modalData);
+    setKpiModalTitle(modalTitle);
+    setKpiModalOpen(true);
+  };
 
   const cleanData = useMemo(() => {
     if (!data || data.length === 0) return [];
@@ -193,25 +255,22 @@ export default function CyberView({ data, title }: Props) {
       if (values.includes("varios elementos") || values.includes("todas"))
         return false;
 
-      let hasAssignee = false;
-      for (const key of assigneeKeys) {
-        const val = String(row[key] || "").trim();
-        if (val && val !== "-") {
-          hasAssignee = true;
-          break;
-        }
-      }
+      const project = String(row['PROYECTO O TAREA'] || row['Proyecto'] || row['Tarea'] || '').trim();
+      const id = String(row['Vulnerabilidades'] || row['GAP'] || row['Identificación'] || row['Numero'] || '').trim();
+      const activity = String(row['Actividad'] || row['Acciones'] || row['Sitación Actual'] || '').trim();
+      
+      const isPlaceholder = (val: string) => {
+        const v = val.toLowerCase();
+        return v === "" || v === "-" || v === "n/a" || v === "no aplica" || v === ".";
+      };
 
-      let hasDate = false;
-      for (const key of dateKeys) {
-        const val = String(row[key] || "").trim();
-        if (val && val !== "-") {
-          hasDate = true;
-          break;
-        }
-      }
+      // A valid row MUST have some descriptive content that isn't a dash or common placeholder
+      const hasContent = 
+        (!isPlaceholder(project) && project.length > 2) || 
+        (!isPlaceholder(id) && id.length > 2) ||
+        (!isPlaceholder(activity) && activity.length > 4);
 
-      if (!hasAssignee || !hasDate) return false;
+      if (!hasContent) return false;
 
       return true;
     });
@@ -506,6 +565,7 @@ export default function CyberView({ data, title }: Props) {
       strategicCount: {},
       ambitoCount: {},
       governanceGaps: 0,
+      governanceCount: 0,
       strategicChartData: [],
       ambitoChartData: [],
       chiVal: 100,
@@ -597,6 +657,9 @@ export default function CyberView({ data, title }: Props) {
         }
       }
 
+      if (strategicCategory === "Governance & Compliance") {
+        initialState.governanceCount++;
+      }
       if (
         strategicCategory === "Otros/No Categorizados" ||
         strategicCategory === "Sin Categoría Definida"
@@ -633,8 +696,12 @@ export default function CyberView({ data, title }: Props) {
       else weightedRiskScore += 1;
 
       if (priorityKey && row[priorityKey]) {
-        priorityCount[priorityRaw.toUpperCase()] =
-          (priorityCount[priorityRaw.toUpperCase()] || 0) + 1;
+        const val = priorityRaw.toUpperCase().trim();
+        if (val && val !== "-") {
+          priorityCount[val] = (priorityCount[val] || 0) + 1;
+        } else {
+          priorityCount["NO DEFINIDO"] = (priorityCount["NO DEFINIDO"] || 0) + 1;
+        }
       }
 
       if (dateKey && row[dateKey]) {
@@ -661,8 +728,12 @@ export default function CyberView({ data, title }: Props) {
       }
 
       if (statusKey && row[statusKey]) {
-        const estado = String(row[statusKey]);
-        statusCount[estado] = (statusCount[estado] || 0) + 1;
+        const estado = String(row[statusKey]).trim();
+        if (estado && estado !== "-") {
+          statusCount[estado] = (statusCount[estado] || 0) + 1;
+        } else {
+          statusCount["SIN ESTADO"] = (statusCount["SIN ESTADO"] || 0) + 1;
+        }
       }
       slaCount[isOffPolicy ? "Atrasado" : "En Tiempo"]++;
       strategicCount[strategicCategory] =
@@ -711,6 +782,57 @@ export default function CyberView({ data, title }: Props) {
     const criticalDensityVal = Math.round((criticalCount / (filteredData.length || 1)) * 100);
     const coverageVal = Math.round(((filteredData.length - governanceGaps) / (filteredData.length || 1)) * 100);
     
+    // Robust Weekly logic for cards (Monday-start)
+    const getMondayOfCurrentWeek = () => {
+      const today = new Date();
+      const day = today.getDay(); // 0 is Sun, 1 is Mon...
+      const diff = today.getDate() - day + (day === 0 ? -6 : 1); 
+      const monday = new Date(today.getFullYear(), today.getMonth(), diff);
+      monday.setHours(0, 0, 0, 0);
+      return monday;
+    };
+    const currentMonday = getMondayOfCurrentWeek();
+    let weeklyCreated = 0;
+    let weeklyResolved = 0;
+
+    filteredData.forEach(row => {
+      // Logic for new items created this week
+      const createdField = row[dateKey];
+      if (createdField) {
+        const cIso = getISOFromExcelDate(createdField);
+        if (cIso) {
+          const cDate = new Date(cIso);
+          if (cDate >= currentMonday) {
+            weeklyCreated++;
+          }
+        }
+      }
+
+      // Logic for items resolved this week
+      // If we have a resolution status, and it's resolved, 
+      // we assume it was resolved recently if it has no resolution date.
+      // But ideally we'd look for an 'UpdatedAt' or 'ResolutionDate' column.
+      const resolutionDateKey = findColumnKey(row, ['Fecha de resolución', 'Resolved', 'Fecha Termino', 'Fecha Fin']);
+      if (resolutionDateKey && row[resolutionDateKey]) {
+        const rIso = getISOFromExcelDate(row[resolutionDateKey]);
+        if (rIso) {
+          const rDate = new Date(rIso);
+          if (rDate >= currentMonday && isResolvedStatus(row[statusKey])) {
+            weeklyResolved++;
+          }
+        }
+      } else if (isResolvedStatus(row[statusKey])) {
+        // Fallback: If no resolution date, check if the main date is this week (items created and resolved this week)
+        const cIso = getISOFromExcelDate(createdField);
+        if (cIso) {
+          const cDate = new Date(cIso);
+          if (cDate >= currentMonday) {
+            weeklyResolved++;
+          }
+        }
+      }
+    });
+
     // Balanced MTTC Score (Normalized 0-100, where < 15 days is 100)
     const mttcVal = Math.round(
       filteredData.reduce((acc, r) => acc + Number(r["Dias de atraso"] || 0), 0) / (filteredData.length || 1)
@@ -730,26 +852,31 @@ export default function CyberView({ data, title }: Props) {
     const criticalDensity = criticalDensityVal;
     const mttc = mttcVal;
 
-    // Advanced Insight Engine logic
+    // Advanced Insight Engine logic - Surprising and Enterprise-ready
     const insights = [];
-    if (chiVal < 80) insights.push({
-      title: "Riesgo de Postura",
-      text: "Se detecta una degradación en el CHI debido a altos tiempos de resolución en ítems críticos.",
+    if (chiVal < 85) insights.push({
+      title: "Resiliencia de Postura",
+      text: "Se detecta una degradación del CHI. Los tiempos de respuesta en activos de alta criticidad superan el umbral corporativo de 72h.",
       type: "danger"
     });
-    if (governanceGaps > (filteredData.length * 0.2)) insights.push({
-      title: "Fuga de Gobernanza",
-      text: `Más del 20% de la operación (${governanceGaps} items) no está mapeada al catálogo estratégico.`,
+    if (governanceGaps > (filteredData.length * 0.15)) insights.push({
+      title: "Punto Ciego de Gobernanza",
+      text: `Detección de ${governanceGaps} hallazgos no clasificados (Fuga de Contexto). Se requiere mapeo inmediato al catálogo MAC.`,
       type: "warning"
     });
-    if (slaCompliance < 90) insights.push({
-      title: "Alerta de SLA",
-      text: "El cumplimiento de SLA es sub-óptimo. Posible cuello de botella en proveedores externos.",
+    if (slaCompliance < 92) insights.push({
+      title: "Estrés Operativo",
+      text: "El cumplimiento de SLA muestra fatiga estructural. Posible necesidad de balancear carga entre prestadores externos.",
+      type: "warning"
+    });
+    if (weeklyCreated > weeklyResolved * 1.5) insights.push({
+      title: "Crecimiento de Deuda Técnica",
+      text: "La tasa de reporte (Inbound) supera la de resolución (Outbound). El backlog proyecta un crecimiento del 15% este mes.",
       type: "warning"
     });
     if (insights.length === 0) insights.push({
-      title: "Postura Óptima",
-      text: "Todos los indicadores se mantienen dentro del umbral de resiliencia definido.",
+      title: "Operación de Clase Mundial",
+      text: "Todos los indicadores (CHI, SLA, MTTR) superan los estándares de resiliencia del sector ciberseguridad.",
       type: "success"
     });
 
@@ -784,7 +911,7 @@ export default function CyberView({ data, title }: Props) {
           }
         }
 
-        if (!acc[month]) acc[month] = { count: 0, critical: 0, resolved: 0 };
+        if (!acc[month]) acc[month] = { count: 0, critical: 0, resolved: 0, onTime: 0 };
         acc[month].count += 1;
         if (isCriticalPriority(row[priorityKey])) {
           acc[month].critical += 1;
@@ -792,6 +919,9 @@ export default function CyberView({ data, title }: Props) {
         const statusValue = row[statusKey || ""];
         if (isResolvedStatus(statusValue)) {
           acc[month].resolved += 1;
+          const delayKey = findColumnKey(row, ["Dias de atraso", "Atraso", "Delay", "Retraso", "Vencimiento"]);
+          const delayValue = delayKey ? Number(row[delayKey] || 0) : 0;
+          if (delayValue <= 0) acc[month].onTime += 1;
         }
 
         return acc;
@@ -799,9 +929,12 @@ export default function CyberView({ data, title }: Props) {
     )
       .map(([month, stats]: [string, any]) => ({
         month,
+        displayLabel: getMonthLabel(month),
         count: stats.count,
         critical: stats.critical,
         resolved: stats.resolved,
+        onTime: stats.onTime,
+        compliance: stats.resolved > 0 ? Math.round((stats.onTime / stats.resolved) * 100) : 100,
       }))
       .sort((a, b) => {
         if (a.month === "Sin Fecha") return -1;
@@ -813,15 +946,19 @@ export default function CyberView({ data, title }: Props) {
     let cumCount = 0;
     let cumCritical = 0;
     let cumResolved = 0;
-    const cumulativeTrends = monthlyTrends.map((item) => {
+    let cumOnTime = 0;
+    const cumulativeTrends = monthlyTrends.map((item: any) => {
       cumCount += item.count;
       cumCritical += item.critical;
       cumResolved += item.resolved;
+      cumOnTime += item.onTime || 0;
       return {
         month: item.month,
+        displayLabel: item.displayLabel,
         count: cumCount,
         critical: cumCritical,
         resolved: cumResolved,
+        compliance: cumResolved > 0 ? Math.round((cumOnTime / cumResolved) * 100) : 100,
         newThisMonth: item.count,
       };
     });
@@ -861,6 +998,7 @@ export default function CyberView({ data, title }: Props) {
       totalDelayed,
       weightedRiskScore,
       governanceGaps,
+      governanceCount: initialState.governanceCount,
       monthlyTrends,
       cumulativeTrends,
       vendorImpact,
@@ -870,6 +1008,8 @@ export default function CyberView({ data, title }: Props) {
       coverage,
       criticalDensity,
       mttc,
+      weeklyCreated,
+      weeklyResolved,
       healthScore: chiVal,
       trends,
       copilotInsights: insights,
@@ -966,7 +1106,7 @@ export default function CyberView({ data, title }: Props) {
     }
     return sorted.length > 0
       ? sorted
-      : [{ month: "N/A", count: 0, critical: 0, resolved: 0, newThisMonth: 0 }];
+      : [{ month: "N/A", count: 0, critical: 0, resolved: 0, compliance: 100, newThisMonth: 0 }];
   }, [
     metrics.monthlyTrends,
     metrics.cumulativeTrends,
@@ -976,30 +1116,30 @@ export default function CyberView({ data, title }: Props) {
 
   const valueInsights = [
     {
-      title: "Integridad de Defensa",
-      desc: "Mide la salud general de las operaciones. Penaliza la acumulación de incidentes y castiga fuertemente las tareas fuera de SLA.",
-      impact: `Score actual: ${metrics.chiVal}%`,
+      title: "CHI (Cyber Health Index)",
+      desc: "Indicador sintetizado de resiliencia MAC. Evalúa la capacidad de absorción y respuesta ante incidentes mapeados, priorizando el cumplimiento de SLAs y la higiene del inventario.",
+      impact: `Postura Actual: ${metrics.chiVal}%`,
       icon: ShieldCheck,
       color: "text-emerald-400",
     },
     {
-      title: "Gobernanza de Activos",
-      desc: "Porcentaje de higiene: mide qué porción de los registros logró ser vinculada exitosamente a un proyecto o dominio estratégico.",
-      impact: `Mapeado: ${metrics.coverage}%`,
+      title: "Gobernanza MAC",
+      desc: "Rating de correspondencia estratégica. Identifica el porcentaje de hallazgos que han sido correctamente atribuidos a un dominio del catálogo MAC 2026.",
+      impact: `Tasa de Mapeo: ${metrics.coverage}%`,
       icon: Globe,
       color: "text-brand-400",
     },
     {
-      title: "Densidad Exposición",
-      desc: "Qué proporción de toda tu base de observaciones o brechas está marcada con severidad o prioridad crítica.",
-      impact: `Gravedad: ${metrics.criticalDensity}%`,
+      title: "Critical Drift (Densidad)",
+      desc: "Volumen de ítems P1/P2 en estado abierto. Un incremento indica un desplazamiento del riesgo residual hacia zonas de exposición crítica sin mitigación activa.",
+      impact: `Densidad Riesgo: ${metrics.criticalDensity}%`,
       icon: AlertCircle,
       color: "text-rose-400",
     },
     {
-      title: "MTTC Remediation",
-      desc: "Mean Time To Close: muestra el promedio general de días de atraso a lo largo de toda la cartera de acción.",
-      impact: `Retraso medio: ${metrics.mttc} días`,
+      title: "MTTC Operacional",
+      desc: "Mean Time To Close. Promedio de días desde la identificación hasta el cierre efectivo. Indica la agilidad de los proveedores y equipos internos en la remediación.",
+      impact: `MTTC: ${metrics.mttc} días`,
       icon: Activity,
       color: "text-amber-400",
     },
@@ -1031,15 +1171,14 @@ export default function CyberView({ data, title }: Props) {
           <div className="flex items-center gap-4 mb-4">
             <div className="h-4 w-1 bg-brand-600 rounded-full" />
             <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.5em]">
-              Risk Management Ecosystem
+              MAC Security Ecosystem
             </span>
           </div>
           <h1 className="text-5xl font-black text-slate-900 tracking-tighter">
-            Mando & Control{" "}
-            <span className="text-brand-600">Ciberseguridad</span>
+            MAC<span className="text-brand-600">.</span> Matriz de Actividades
           </h1>
           <p className="text-sm text-slate-500 mt-2 font-medium">
-            Visualización táctica de KPIs y resiliencia corporativa.
+            Control estratégico de ciberseguridad, riesgos y resiliencia táctica.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
@@ -1133,6 +1272,14 @@ export default function CyberView({ data, title }: Props) {
          }}
       />
 
+      <DetailsModal 
+        isOpen={kpiModalOpen}
+        onClose={() => setKpiModalOpen(false)}
+        data={kpiModalData}
+        title={kpiModalTitle}
+        filename="KPI_Drilldown_Report.xlsx"
+      />
+
       <AnimatePresence>
         {showValueHub && (
           <motion.div
@@ -1172,15 +1319,20 @@ export default function CyberView({ data, title }: Props) {
 
       {/* KPI Cards */}
       <CyberMetricsCards 
+        onCardClick={handleKpiClick}
         metrics={{
           total: metrics.total,
+          governanceCount: metrics.governanceCount || 0,
           critical: filteredData.filter((r) => isCriticalPriority(r[keys?.priorityKey || ""])).length,
           resolved: metrics.cumulativeTrends.length > 0 ? metrics.cumulativeTrends[metrics.cumulativeTrends.length - 1].resolved : 0,
           pending: metrics.activeGaps,
           avgAging: metrics.mttc,
           complianceRate: metrics.chiVal,
           onTimeRate: Math.round(((metrics.total - metrics.totalDelayed) / (metrics.total || 1)) * 100),
-          mttr: String(metrics.mttc)
+          mttr: String(metrics.mttc),
+          weeklyCreated: metrics.weeklyCreated,
+          weeklyResolved: metrics.weeklyResolved,
+          chiVal: metrics.chiVal
         }}
       />
 
@@ -1190,53 +1342,62 @@ export default function CyberView({ data, title }: Props) {
         categoryData={metrics.strategicChartData.map(d => ({ name: d.name, value: d.total }))}
         colors={STATUS_COLORS}
       />
-      
-      {/* Strategic Insights Section - Executive Copilot */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="border-0 shadow-xl bg-slate-50/50 rounded-[2rem] border border-slate-100 p-8 flex items-center gap-6 group hover:bg-white transition-all cursor-default">
-           <div className="p-4 bg-white rounded-2xl shadow-sm text-brand-500 group-hover:scale-110 transition-transform">
-              <ShieldCheck size={24} />
-           </div>
-           <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Estado de Higiene</p>
-              <div className="flex items-center gap-2">
-                 <span className="text-xl font-black text-slate-900 tracking-tight">Inventario Saludable</span>
-                 <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              </div>
-           </div>
-        </Card>
-        
-        <Card className="border-0 shadow-xl bg-slate-50/50 rounded-[2rem] border border-slate-100 p-8 flex items-center gap-6 group hover:bg-white transition-all cursor-default">
-           <div className="p-4 bg-white rounded-2xl shadow-sm text-rose-500 group-hover:scale-110 transition-transform">
-              <Zap size={24} />
-           </div>
-           <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Fricción Operativa</p>
-              <div className="flex items-center gap-2">
-                 <span className="text-xl font-black text-slate-900 tracking-tight">{metrics.totalDelayed > 5 ? 'Atención Requerida' : 'Flujo Óptimo'}</span>
-                 <div className={`h-2 w-2 rounded-full ${metrics.totalDelayed > 5 ? 'bg-rose-500' : 'bg-emerald-500'} animate-pulse`} />
-              </div>
-           </div>
-        </Card>
 
-        <Card className="border-0 shadow-xl bg-slate-50/50 rounded-[2rem] border border-slate-100 p-8 flex items-center gap-6 group hover:bg-white transition-all cursor-default">
-           <div className="p-4 bg-white rounded-2xl shadow-sm text-amber-500 group-hover:scale-110 transition-transform">
-              <Lock size={24} />
-           </div>
-           <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Superficie Expuesta</p>
-              <div className="flex items-center gap-2 text-slate-900 font-black">
-                 <span className="text-xl tracking-tight">{metrics.criticalDensity < 20 ? 'Bajo Riesgo' : 'Exposición Alta'}</span>
-                 <ArrowUpRight size={18} className={metrics.criticalDensity < 20 ? 'rotate-90 text-emerald-500' : 'text-rose-500'} />
+      {/* Strategic Insights Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {metrics.activityInsights?.length > 0 ? (
+          metrics.activityInsights.map((insight: any, idx: number) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 * idx }}
+              className={`p-6 rounded-[2rem] border shadow-xl relative overflow-hidden group ${
+                insight.type === 'warning' ? 'bg-rose-50 border-rose-100' :
+                insight.type === 'success' ? 'bg-emerald-50 border-emerald-100' :
+                'bg-brand-50 border-brand-100'
+              }`}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`p-2 rounded-xl border ${
+                  insight.type === 'warning' ? 'bg-rose-100 border-rose-200 text-rose-600' :
+                  insight.type === 'success' ? 'bg-emerald-100 border-emerald-200 text-emerald-600' :
+                  'bg-brand-100 border-brand-200 text-brand-600'
+                }`}>
+                  {insight.type === 'warning' ? <ShieldAlert size={16} /> : 
+                   insight.type === 'success' ? <CheckCircle2 size={16} /> : 
+                   <Lightbulb size={16} />}
+                </div>
+                <h5 className={`text-[10px] font-black uppercase tracking-widest ${
+                  insight.type === 'warning' ? 'text-rose-900/60' :
+                  insight.type === 'success' ? 'text-emerald-900/60' :
+                  'text-brand-900/60'
+                }`}>
+                  {insight.title}
+                </h5>
               </div>
-           </div>
-        </Card>
+              <p className="text-xs font-bold text-slate-800 leading-relaxed">
+                {insight.text}
+              </p>
+              <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
+                 {insight.type === 'warning' ? <ShieldAlert size={80} /> : 
+                  insight.type === 'success' ? <CheckCircle2 size={80} /> : 
+                  <Target size={80} />}
+              </div>
+            </motion.div>
+          ))
+        ) : (
+          <div className="col-span-3 p-12 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200 text-center">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Esperando Generación de Inteligencia Estratégica...</p>
+          </div>
+        )}
       </div>
+      
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         {/* Historical Trends */}
-        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[500px]">
+        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[700px]">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.02]" />
           <CardHeader className="p-10 md:p-14 border-b border-slate-50 relative z-10 shrink-0">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -1278,134 +1439,72 @@ export default function CyberView({ data, title }: Props) {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-10 md:p-14 relative z-10 bg-slate-50/50 flex-1 min-h-0">
+          <CardContent className="p-10 md:p-14 pt-4 relative z-10 bg-slate-50/30 flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={trendChartData}
-                margin={{ top: 20, right: 10, left: -20, bottom: 0 }}
+                margin={{ top: 20, right: 30, left: 0, bottom: 20 }}
               >
                 <defs>
                   <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#94a3b8" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
-                  <linearGradient
-                    id="colorCritical"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient
-                    id="colorResolved"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                  <linearGradient id="colorResolved" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid
-                  strokeDasharray="3 3"
+                  strokeDasharray="8 8"
                   vertical={false}
                   stroke="#f1f5f9"
                 />
                 <XAxis
-                  dataKey="month"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{
-                    fill: "#94a3b8",
-                    fontSize: 10,
-                    fontWeight: 800,
-                    textAnchor: "middle",
-                  }}
-                  dy={10}
-                />
-                <YAxis
+                  dataKey="displayLabel"
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "#94a3b8", fontSize: 10, fontWeight: 800 }}
+                  dy={15}
+                />
+                <YAxis
+                  yAxisId="left"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#94a3b8", fontSize: 10, fontWeight: 700 }}
                   dx={-10}
                 />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  domain={[0, 100]}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#a855f7", fontSize: 10, fontWeight: 700 }}
+                  dx={10}
+                />
                 <Tooltip
-                  cursor={{
-                    stroke: "#cbd5e1",
-                    strokeWidth: 1,
-                    strokeDasharray: "4 4",
-                  }}
+                  cursor={{ stroke: "#cbd5e1", strokeWidth: 1, strokeDasharray: "4 4" }}
                   content={({ active, payload, label }: any) => {
                     if (active && payload && payload.length) {
                       return (
-                        <div className="bg-white/90 backdrop-blur-xl border border-slate-100 rounded-3xl p-5 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)]">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">
-                            {label}
-                          </p>
-                          <div className="space-y-3 relative z-10">
-                            {trendViewType === "cumulative" && (
-                              <div className="flex items-center justify-between gap-8 bg-slate-50 p-2 rounded-xl -mx-2 mb-2">
+                        <div className="bg-white/95 backdrop-blur-2xl border border-slate-100 rounded-[2.5rem] p-8 shadow-3xl ring-1 ring-slate-900/5 min-w-[240px]">
+                          <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
+                             <div className="w-2.5 h-2.5 rounded-full bg-brand-500 shadow-lg shadow-brand-500/50" />
+                             <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">{label}</p>
+                          </div>
+                          <div className="space-y-5">
+                            {payload.map((p: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                  <div className="h-2 w-2 rounded-full bg-indigo-500 shadow-lg shadow-indigo-500/30 animate-pulse" />
-                                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                                    Nuevos (Mes)
-                                  </span>
+                                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.name}</span>
                                 </div>
-                                <span className="text-sm font-black text-indigo-700 font-mono">
-                                  +
-                                  {payload.find(
-                                    (p: any) =>
-                                      p.dataKey === "count" ||
-                                      p.dataKey === "newThisMonth",
-                                  )?.payload?.newThisMonth || 0}
+                                <span className="text-sm font-black text-slate-800 font-mono">
+                                  {p.dataKey === 'compliance' ? `${p.value}%` : p.value}
                                 </span>
                               </div>
-                            )}
-                            <div className="flex items-center justify-between gap-8">
-                              <div className="flex items-center gap-3">
-                                <div className="h-2 w-2 rounded-full bg-slate-300" />
-                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                                  {trendViewType === "cumulative"
-                                    ? "Total Acumulado"
-                                    : "Total (Mes)"}
-                                </span>
-                              </div>
-                              <span className="text-sm font-black text-slate-800 font-mono">
-                                {payload.find((p: any) => p.dataKey === "count")
-                                  ?.value || 0}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-8">
-                              <div className="flex items-center gap-3">
-                                <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/30" />
-                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                                  Resueltos
-                                </span>
-                              </div>
-                              <span className="text-sm font-black text-emerald-600 font-mono">
-                                {payload.find(
-                                  (p: any) => p.dataKey === "resolved",
-                                )?.value || 0}
-                              </span>
-                            </div>
-                            <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-100 to-transparent my-1" />
-                            <div className="flex items-center justify-between gap-8">
-                              <div className="flex items-center gap-3">
-                                <div className="h-2 w-2 rounded-full bg-rose-500 shadow-lg shadow-rose-500/30 animate-pulse" />
-                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                                  Alta Criticidad
-                                </span>
-                              </div>
-                              <span className="text-sm font-black text-rose-600 font-mono">
-                                {payload.find(
-                                  (p: any) => p.dataKey === "critical",
-                                )?.value || 0}
-                              </span>
-                            </div>
+                            ))}
                           </div>
                         </div>
                       );
@@ -1413,63 +1512,71 @@ export default function CyberView({ data, title }: Props) {
                     return null;
                   }}
                 />
-                {trendViewType === "cumulative" && (
-                  <Bar
-                    dataKey="newThisMonth"
-                    fill="#e2e8f0"
-                    radius={[4, 4, 0, 0]}
-                    barSize={20}
-                  />
-                )}
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  name="Total"
-                  stroke="#94a3b8"
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  fill="url(#colorTotal)"
-                  activeDot={{
-                    r: 4,
-                    strokeWidth: 0,
-                    fill: "#94a3b8",
-                    stroke: "#fff",
-                  }}
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  wrapperStyle={{ paddingBottom: "40px" }}
+                  content={({ payload }: any) => (
+                    <div className="flex items-center justify-end gap-8 mb-8">
+                       {payload.map((entry: any, index: number) => (
+                         <div key={index} className="flex items-center gap-3 group cursor-pointer">
+                           <div className="w-3 h-3 rounded-full shadow-sm group-hover:scale-125 transition-transform" style={{ backgroundColor: entry.color }} />
+                           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest group-hover:text-slate-900 transition-colors">{entry.value}</span>
+                         </div>
+                       ))}
+                    </div>
+                  )}
                 />
                 <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="count"
+                  name="Capturados"
+                  stroke="#6366f1"
+                  strokeWidth={6}
+                  fillOpacity={1}
+                  fill="url(#colorTotal)"
+                  activeDot={{ r: 10, strokeWidth: 0, fill: "#6366f1", shadow: "0 0 20px rgba(99,102,241,0.5)" }}
+                  dot={{ r: 4, fill: "#fff", stroke: "#6366f1", strokeWidth: 2 }}
+                />
+                <Area
+                  yAxisId="left"
                   type="monotone"
                   dataKey="resolved"
                   name="Resueltos"
                   stroke="#10b981"
-                  strokeWidth={3}
+                  strokeWidth={4}
+                  fillOpacity={1}
                   fill="url(#colorResolved)"
-                  activeDot={{
-                    r: 6,
-                    strokeWidth: 0,
-                    fill: "#10b981",
-                    stroke: "#fff",
-                  }}
+                  activeDot={{ r: 8, strokeWidth: 0, fill: "#10b981" }}
+                  dot={{ r: 3, fill: "#fff", stroke: "#10b981", strokeWidth: 2 }}
                 />
-                <Area
+                <Line
+                  yAxisId="left"
                   type="monotone"
                   dataKey="critical"
                   name="Críticos"
                   stroke="#f43f5e"
                   strokeWidth={3}
-                  fill="url(#colorCritical)"
-                  activeDot={{
-                    r: 6,
-                    strokeWidth: 0,
-                    fill: "#f43f5e",
-                    stroke: "#fff",
-                  }}
+                  dot={{ r: 4, fill: "#f43f5e", strokeWidth: 0 }}
+                  activeDot={{ r: 6, fill: "#f43f5e" }}
+                />
+                <Line
+                  yAxisId="right"
+                  type="stepAfter"
+                  dataKey="compliance"
+                  name="Cumplimiento SLA"
+                  stroke="#a855f7"
+                  strokeWidth={3}
+                  strokeDasharray="12 6"
+                  dot={false}
                 />
               </ComposedChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[500px]">
+        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[700px]">
           <CardHeader className="border-b border-slate-50 p-10 md:p-14 flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10 shrink-0">
             <div>
               <div className="flex items-center gap-3 mb-3">

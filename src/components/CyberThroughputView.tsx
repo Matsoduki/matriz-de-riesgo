@@ -18,10 +18,12 @@ import {
   Calendar,
   Clock,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Activity,
+  Target
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { getISOFromExcelDate, getISOWeek, isResolvedStatus } from '../lib/excelParser';
+import { getISOFromExcelDate, getISOWeek, getWeekLabel, isResolvedStatus } from '../lib/excelParser';
 
 interface Props {
   data: any[];
@@ -29,29 +31,54 @@ interface Props {
   statusKey: string;
 }
 
+const getMonthLabel = (isoMonth: string): string => {
+  if (isoMonth === "S/F" || !isoMonth.includes('-')) return isoMonth;
+  const [year, month] = isoMonth.split('-');
+  const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+  return new Intl.DateTimeFormat('es-AR', { month: 'short', year: '2-digit' }).format(date);
+};
+
 export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey }) => {
   const [timeframe, setTimeframe] = useState<'weekly' | 'monthly'>('weekly');
 
   const stats = useMemo(() => {
     if (!data.length) return null;
 
+    // Robust Monday-start logic
+    const getMondayOfCurrentWeek = () => {
+      const today = new Date();
+      const day = today.getDay();
+      const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(today.getFullYear(), today.getMonth(), diff);
+      monday.setHours(0, 0, 0, 0);
+      return monday;
+    };
+
+    const currentMonday = getMondayOfCurrentWeek();
+
+    // 1. Grouped historic data for charts
     const grouped = data.reduce((acc: any, row) => {
       const fieldVal = row[dateKey];
       let period = "S/F";
+      let displayLabel = "S/F";
       
       if (fieldVal) {
         if (timeframe === 'monthly') {
           const iso = getISOFromExcelDate(fieldVal);
-          if (iso) period = iso.substring(0, 7);
+          if (iso && iso.match(/^\d{4}-\d{2}/)) {
+            period = iso.substring(0, 7);
+            displayLabel = getMonthLabel(period);
+          }
         } else {
           period = getISOWeek(fieldVal);
+          displayLabel = getWeekLabel(fieldVal);
         }
       }
 
       if (period === "S/F") return acc;
 
       if (!acc[period]) {
-        acc[period] = { period, created: 0, resolved: 0 };
+        acc[period] = { period, displayLabel, created: 0, resolved: 0 };
       }
       
       acc[period].created += 1;
@@ -62,26 +89,55 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
       return acc;
     }, {});
 
-    const trendData = Object.values(grouped).sort((a: any, b: any) => a.period.localeCompare(b.period));
+    const trendData = Object.values(grouped)
+      .sort((a: any, b: any) => a.period.localeCompare(b.period))
+      .map((item: any) => ({
+        ...item,
+        backlogDelta: item.created - item.resolved
+      }));
     
-    // Last two periods for "VS" comparison
-    const current = trendData[trendData.length - 1] as any || { created: 0, resolved: 0 };
-    const previous = trendData[trendData.length - 2] as any || { created: 0, resolved: 0 };
+    // 2. Real-time "Since Monday" metrics
+    let thisWeekCreated = 0;
+    let thisWeekResolved = 0;
 
-    const createdDelta = previous.created > 0 
-      ? Math.round(((current.created - previous.created) / previous.created) * 100)
+    data.forEach(row => {
+      const fieldVal = row[dateKey];
+      if (!fieldVal) return;
+      const iso = getISOFromExcelDate(fieldVal);
+      if (!iso) return;
+      const date = new Date(iso);
+      
+      if (date >= currentMonday) {
+        thisWeekCreated++;
+        if (isResolvedStatus(row[statusKey])) {
+          thisWeekResolved++;
+        }
+      }
+    });
+
+    // Last two periods for "VS" comparison
+    const currentPeriodData = trendData[trendData.length - 1] as any || { created: 0, resolved: 0 };
+    const previousPeriodData = trendData[trendData.length - 2] as any || { created: 0, resolved: 0 };
+
+    const createdDelta = previousPeriodData.created > 0 
+      ? Math.round(((currentPeriodData.created - previousPeriodData.created) / previousPeriodData.created) * 100)
       : 0;
     
-    const resolvedDelta = previous.resolved > 0 
-      ? Math.round(((current.resolved - previous.resolved) / previous.resolved) * 100)
+    const resolvedDelta = previousPeriodData.resolved > 0 
+      ? Math.round(((currentPeriodData.resolved - previousPeriodData.resolved) / previousPeriodData.resolved) * 100)
       : 0;
 
     return {
       trendData,
-      current,
-      previous,
+      current: {
+        created: thisWeekCreated,
+        resolved: thisWeekResolved,
+      },
+      periodic: currentPeriodData,
+      previous: previousPeriodData,
       createdDelta,
-      resolvedDelta
+      resolvedDelta,
+      lastUpdate: currentMonday.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
     };
   }, [data, timeframe, dateKey, statusKey]);
 
@@ -90,58 +146,77 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
   return (
     <div className="space-y-8">
       {/* Comparison Header */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-xl rounded-[2rem] bg-indigo-900 text-white overflow-hidden relative">
-          <div className="absolute -right-4 -top-4 opacity-10 bg-white w-24 h-24 rounded-full" />
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Created (This {timeframe === 'weekly' ? 'Week' : 'Month'})</span>
-              <Calendar size={16} className="opacity-40" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="border-0 shadow-2xl rounded-[2.5rem] bg-indigo-900 text-white overflow-hidden relative group">
+          <div className="absolute -right-4 -top-4 opacity-10 bg-white w-24 h-24 rounded-full group-hover:scale-150 transition-transform duration-700" />
+          <CardContent className="p-8">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300">Nuevos Gaps</span>
+                <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">Desde {stats.lastUpdate}</span>
+              </div>
+              <Calendar size={18} className="text-indigo-400" />
             </div>
             <div className="flex items-end gap-3">
-              <span className="text-4xl font-black">{stats.current.created}</span>
-              <div className={`flex items-center text-xs font-bold px-2 py-1 rounded-full mb-1 ${stats.createdDelta > 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                {stats.createdDelta > 0 ? <TrendingUp size={12} className="mr-1" /> : <TrendingDown size={12} className="mr-1" />}
+              <span className="text-5xl font-black tracking-tighter">{stats.current.created}</span>
+              <div className={`flex items-center text-[10px] font-black px-2 py-1 rounded-lg mb-1.5 ${stats.createdDelta > 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                {stats.createdDelta > 0 ? <TrendingUp size={10} className="mr-1" /> : <TrendingDown size={10} className="mr-1" />}
                 {Math.abs(stats.createdDelta)}%
               </div>
             </div>
-            <p className="text-[10px] opacity-40 mt-2 font-medium">vs {stats.previous.created} in previous period</p>
+            <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
+              <span className="text-[9px] font-bold opacity-30 uppercase tracking-widest leading-none">Anterior: {stats.previous.created}</span>
+              <div className="h-1 w-12 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-brand-400 w-1/2" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-xl rounded-[2rem] bg-emerald-600 text-white overflow-hidden relative">
-          <div className="absolute -right-4 -top-4 opacity-10 bg-white w-24 h-24 rounded-full" />
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Resolved (This {timeframe === 'weekly' ? 'Week' : 'Month'})</span>
-              <CheckCircle2 size={16} className="opacity-40" />
+        <Card className="border-0 shadow-2xl rounded-[2.5rem] bg-emerald-600 text-white overflow-hidden relative group">
+          <div className="absolute -right-4 -top-4 opacity-10 bg-white w-24 h-24 rounded-full group-hover:scale-150 transition-transform duration-700" />
+          <CardContent className="p-8">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-100">Cierres Ejecutados</span>
+                <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">Desde {stats.lastUpdate}</span>
+              </div>
+              <CheckCircle2 size={18} className="text-emerald-300" />
             </div>
             <div className="flex items-end gap-3">
-              <span className="text-4xl font-black">{stats.current.resolved}</span>
-              <div className={`flex items-center text-xs font-bold px-2 py-1 rounded-full mb-1 ${stats.resolvedDelta >= 0 ? 'bg-white/20 text-white' : 'bg-rose-500/30 text-rose-100'}`}>
-                {stats.resolvedDelta >= 0 ? <TrendingUp size={12} className="mr-1" /> : <TrendingDown size={12} className="mr-1" />}
+              <span className="text-5xl font-black tracking-tighter">{stats.current.resolved}</span>
+              <div className={`flex items-center text-[10px] font-black px-2 py-1 rounded-lg mb-1.5 ${stats.resolvedDelta >= 0 ? 'bg-white/20 text-white' : 'bg-rose-500/30 text-rose-100'}`}>
+                {stats.resolvedDelta >= 0 ? <TrendingUp size={10} className="mr-1" /> : <TrendingDown size={10} className="mr-1" />}
                 {Math.abs(stats.resolvedDelta)}%
               </div>
             </div>
-            <p className="text-[10px] opacity-40 mt-2 font-medium">vs {stats.previous.resolved} in previous period</p>
+            <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
+              <span className="text-[9px] font-bold opacity-30 uppercase tracking-widest leading-none">Anterior: {stats.previous.resolved}</span>
+              <div className="h-1 w-12 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-white w-2/3" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Burn Rate / Agility Metric */}
-        <Card className="border-0 shadow-xl rounded-[2rem] bg-white border border-slate-100 overflow-hidden col-span-1 lg:col-span-2">
-          <CardContent className="p-6 flex items-center justify-between h-full">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Status de Mitigación</p>
-              <h4 className="text-xl font-bold text-slate-800">
-                {stats.current.resolved >= stats.current.created ? 'Backlog Reduciéndose' : 'Backlog Creciendo'}
+        <Card className="border-0 shadow-2xl rounded-[2.5rem] bg-white border border-slate-100 overflow-hidden col-span-1 lg:col-span-2 group">
+          <CardContent className="p-8 flex items-center justify-between h-full relative">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-brand-50 rounded-full -mr-8 -mt-8 opacity-50 group-hover:scale-150 transition-transform duration-700" />
+            <div className="flex flex-col relative z-10">
+              <div className="flex items-center gap-2 mb-2">
+                <Target size={14} className="text-brand-500" />
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Objetivo Resiliencia</p>
+              </div>
+              <h4 className="text-2xl font-black text-slate-900 tracking-tight">
+                {stats.current.resolved >= stats.current.created ? 'Superávit Operativo' : 'Déficit Operativo'}
               </h4>
-              <p className="text-xs text-slate-500 mt-1">
-                Relación de cierre: <span className="font-bold text-indigo-600">{Math.round((stats.current.resolved / (stats.current.created || 1)) * 100)}%</span>
+              <p className="text-xs text-slate-500 mt-2 font-medium">
+                Velocity Ratio: <span className={`font-black ${stats.current.resolved >= stats.current.created ? 'text-emerald-600' : 'text-rose-600'}`}>{Math.round((stats.current.resolved / (stats.current.created || 1)) * 100)}%</span>
               </p>
             </div>
-            <div className="flex gap-2">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${stats.current.resolved >= stats.current.created ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                <ArrowUpRight size={24} />
+            <div className="flex gap-4 relative z-10">
+              <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center shadow-lg transition-transform group-hover:rotate-12 ${stats.current.resolved >= stats.current.created ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-rose-500 text-white shadow-rose-200'}`}>
+                <ArrowUpRight size={32} />
               </div>
             </div>
           </CardContent>
@@ -149,49 +224,85 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
       </div>
 
       {/* Main Bar Chart */}
-      <Card className="border-0 shadow-2xl rounded-[2.5rem] bg-white overflow-hidden border border-slate-50">
-        <CardHeader className="p-8 border-b border-slate-50 flex flex-row items-center justify-between space-y-0">
+      <Card className="border-0 shadow-2xl rounded-[3rem] bg-white overflow-hidden border border-slate-100">
+        <CardHeader className="p-10 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-6 space-y-0">
           <div>
-            <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Throughput Operativo</h4>
-            <p className="text-xs text-slate-400 mt-1">Análisis histórico de captura vs resolución</p>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-1.5 w-1.5 rounded-full bg-brand-500" />
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Throughout Operativo</h4>
+            </div>
+            <h3 className="text-2xl font-black text-slate-800 tracking-tighter uppercase">Capacidad de Respuesta</h3>
           </div>
-          <div className="flex bg-slate-100 p-1 rounded-xl">
+          <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
             <button 
               onClick={() => setTimeframe('weekly')}
-              className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timeframe === 'weekly' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+              className={`px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${timeframe === 'weekly' ? 'bg-white text-brand-600 shadow-xl ring-1 ring-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Semanal
             </button>
             <button 
               onClick={() => setTimeframe('monthly')}
-              className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-tight rounded-lg transition-all ${timeframe === 'monthly' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+              className={`px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${timeframe === 'monthly' ? 'bg-white text-brand-600 shadow-xl ring-1 ring-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
             >
               Mensual
             </button>
           </div>
         </CardHeader>
-        <CardContent className="p-8 h-[400px]">
+        <CardContent className="p-10 h-[450px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stats.trendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <BarChart 
+              data={stats.trendData} 
+              margin={{ top: 20, right: 30, left: 0, bottom: 20 }}
+              barGap={8}
+            >
+              <defs>
+                <linearGradient id="barBlue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#6366f1" />
+                  <stop offset="100%" stopColor="#4f46e5" />
+                </linearGradient>
+                <linearGradient id="barGreen" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" />
+                  <stop offset="100%" stopColor="#059669" />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="8 8" vertical={false} stroke="#f1f5f9" />
               <XAxis 
-                dataKey="period" 
+                dataKey="displayLabel" 
                 axisLine={false} 
                 tickLine={false} 
-                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 800 }}
+                dy={15}
               />
               <YAxis 
                 axisLine={false} 
                 tickLine={false} 
-                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 800 }}
+                dx={-10}
               />
               <Tooltip 
-                cursor={{ fill: '#f8fafc' }}
-                contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
+                cursor={{ fill: 'rgba(241, 245, 249, 0.5)' }}
+                contentStyle={{ 
+                  borderRadius: '2rem', 
+                  border: 'none', 
+                  padding: '20px', 
+                  boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)',
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  backdropFilter: 'blur(10px)'
+                }}
+                itemStyle={{ display: 'flex', justifyContent: 'space-between', gap: '20px', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase' }}
+                labelStyle={{ marginBottom: '10px', fontStyle: 'italic', color: '#64748b' }}
               />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '20px', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }} />
-              <Bar dataKey="created" name="Capturados" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={24} />
-              <Bar dataKey="resolved" name="Resueltos" fill="#10b981" radius={[4, 4, 0, 0]} barSize={24} />
+              <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '30px', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.1em' }} />
+              <Bar dataKey="created" name="Capturados" fill="url(#barBlue)" radius={[6, 6, 0, 0]} barSize={28}>
+                {stats.trendData.map((entry: any, index: number) => (
+                  <Cell key={`cell-${index}`} fillOpacity={0.8 + (index / stats.trendData.length) * 0.2} />
+                ))}
+              </Bar>
+              <Bar dataKey="resolved" name="Resueltos" fill="url(#barGreen)" radius={[6, 6, 0, 0]} barSize={28}>
+                {stats.trendData.map((entry: any, index: number) => (
+                  <Cell key={`cell-${index}`} fillOpacity={0.8 + (index / stats.trendData.length) * 0.2} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

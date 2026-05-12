@@ -203,11 +203,14 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       }
 
       if (statusKey && row[statusKey]) {
-        const status = String(row[statusKey]);
-        statusCount[status] = (statusCount[status] || 0) + 1;
+        const status = String(row[statusKey]).trim();
         const isResolved = status.toLowerCase().includes('done') || status.toLowerCase().includes('cerrado') || status.toLowerCase().includes('resuelto') || status.toLowerCase().includes('closed') || status.toLowerCase().includes('completado');
-        if (!isResolved) activeTickets++;
-        if (status.toLowerCase().includes('atrasado')) delayedTickets++;
+
+        if (status && status !== "-") {
+          statusCount[status] = (statusCount[status] || 0) + 1;
+          if (!isResolved) activeTickets++;
+          if (status.toLowerCase().includes('atrasado')) delayedTickets++;
+        }
 
         if (commitmentDateKey && row[commitmentDateKey]) {
           const cDateStr = getISOFromExcelDate(row[commitmentDateKey]);
@@ -220,8 +223,12 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       }
       
       if (priorityKey && row[priorityKey]) {
-        const priority = String(row[priorityKey]);
-        priorityCount[priority] = (priorityCount[priority] || 0) + 1;
+        const priority = String(row[priorityKey]).trim();
+        if (priority && priority !== "-") {
+          priorityCount[priority] = (priorityCount[priority] || 0) + 1;
+        } else {
+          priorityCount["N/A"] = (priorityCount["N/A"] || 0) + 1;
+        }
       }
 
       if (dateKey && row[dateKey]) {

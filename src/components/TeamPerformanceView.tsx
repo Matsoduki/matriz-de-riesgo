@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { 
-  TrendingUp, Activity, Download, List, Flame, Target, CheckCircle2, Clock, Timer, AlertCircle, Trophy, Medal, Award, Rocket, ShieldAlert, BrainCircuit, XCircle, Users, Zap, Hourglass, Scale
+  TrendingUp, Activity, Download, List, Flame, Target, CheckCircle2, Clock, Timer, AlertCircle, Trophy, Medal, Award, Rocket, ShieldAlert, BrainCircuit, XCircle, Users, Zap, Hourglass, Scale, GitCompare, BarChart3, Presentation, ArrowRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { exportToStyledExcel } from '../lib/utils';
@@ -14,6 +14,9 @@ import { TeamMetricsCards } from './TeamMetricsCards';
 import { PerformanceRadar } from './PerformanceRadar';
 import { TeamHallOfFame } from './TeamHallOfFame';
 import { IndividualDeepDiveModal } from './IndividualDeepDiveModal';
+import { AnalyticalBreakdownPanel, MetricType } from './AnalyticalBreakdownPanel';
+import { VSPerformanceAnalytics } from './VSPerformanceAnalytics';
+import { TeamIntelligenceInsights } from './TeamIntelligenceInsights';
 
 interface Props {
   data: any[];
@@ -21,11 +24,17 @@ interface Props {
   subtitle?: string;
 }
 
+type TabType = 'performance' | 'vs_analytics' | 'intelligence';
+
 export default function TeamPerformanceView({ data, title = "Desempeño de Equipo", subtitle = "Centro de mando operativo de clase mundial." }: Props) {
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
   const [showDetails, setShowDetails] = useState(false);
   const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [currentTab, setCurrentTab] = useState<TabType>('performance');
+  
+  // Explainability Panel State
+  const [activeMetric, setActiveMetric] = useState<MetricType | null>(null);
 
   const { cleanData, keysInfo } = useMemo(() => {
     if (!data || data.length === 0) return { cleanData: [], keysInfo: null };
@@ -208,127 +217,214 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="space-y-4 max-w-4xl">
           <div className="flex items-center gap-3">
-             <div className="h-1.5 w-1.5 rounded-full bg-brand-500 animate-pulse" />
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Resource Optimization Hub</span>
+             <div className="h-2 w-2 rounded-full bg-brand-500 animate-pulse shadow-[0_0_12px_rgba(99,102,241,0.8)]" />
+             <span className="text-[11px] font-black text-brand-500 uppercase tracking-[0.4em]">Analytics & Behavioral Intelligence</span>
           </div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">{title}</h2>
-          <p className="text-slate-500 font-medium text-sm leading-relaxed">{subtitle}</p>
+          <h2 className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight leading-[0.8]">{title}<span className="text-brand-600">.</span></h2>
+          <p className="text-lg font-bold text-slate-500 max-w-2xl leading-relaxed">{subtitle}</p>
         </div>
         
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
            <button 
-              onClick={() => exportToStyledExcel(filteredData, 'Performace_Operativa.xlsx', title)}
-              className="flex items-center gap-2 px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
+              onClick={() => exportToStyledExcel(filteredData, 'Performance_Operativa.xlsx', title)}
+              className="flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-[2rem] text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95"
            >
-              <Download size={14} /> Exportar Auditoría
+              <Download size={14} /> Exportar Matrix
            </button>
         </div>
       </div>
 
-      <TeamMetricsCards metrics={metrics as any} />
-
-      <TeamHallOfFame performers={metrics.topThree} onSelect={setSelectedMember} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-         <div className="lg:col-span-4">
-            <PerformanceRadar data={metrics.radarData} />
-         </div>
-
-         <div className="lg:col-span-8">
-            <Card className="border-0 shadow-xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden h-full">
-               <CardHeader className="bg-slate-50/50 p-10 border-b border-slate-100 flex justify-between items-center">
-                  <h4 className="text-2xl font-black text-slate-900 tracking-tighter">Comparativa Operativa</h4>
-                  <div className="flex items-center gap-4">
-                     <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Auditoría Individual</span>
-                  </div>
-               </CardHeader>
-               <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                     <table className="w-full text-left">
-                        <thead className="bg-[#fbfcff] border-b border-slate-50">
-                           <tr>
-                              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Responsable</th>
-                              <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Total</th>
-                              <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">Score Eff.</th>
-                              <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">MTTR (d)</th>
-                              <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-emerald-500">Resuelto</th>
-                              <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-brand-500">% Cumpl.</th>
-                              <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Estado</th>
-                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                           {metrics.collabList.map((c, i) => (
-                              <tr 
-                                 key={i} 
-                                 className="hover:bg-slate-50/50 transition-colors cursor-pointer group"
-                                 onClick={() => setSelectedMember(c)}
-                              >
-                                 <td className="px-8 py-5 font-bold text-slate-800 text-sm">
-                                    <div className="flex items-center gap-3">
-                                       <span className="group-hover:text-brand-600 transition-colors">{c.name}</span>
-                                       {c.isBurnoutRisk && <Flame size={14} className="text-rose-500 animate-pulse" />}
-                                    </div>
-                                 </td>
-                                 <td className="px-4 py-5 font-mono text-slate-600 font-bold">{c.total}</td>
-                                 <td className="px-4 py-5 text-center">
-                                    <span className="text-sm font-black text-brand-600">{c.efficiencyScore}</span>
-                                 </td>
-                                 <td className="px-4 py-5 text-center font-mono text-[10px] font-bold text-slate-500">{c.mttrDisplay}</td>
-                                 <td className="px-4 py-5 font-mono text-emerald-600 font-bold">{c.resolved}</td>
-                                 <td className="px-4 py-5 font-mono text-brand-600 font-black">{c.compliance}%</td>
-                                 <td className="px-8 py-5">
-                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                       c.estado.includes('Elite') ? 'bg-emerald-50 text-emerald-600' : 
-                                       c.estado.includes('Óptimo') ? 'bg-blue-50 text-blue-600' : 
-                                       'bg-rose-50 text-rose-600'
-                                    }`}>
-                                       {c.estado}
-                                    </span>
-                                 </td>
-                              </tr>
-                           ))}
-                        </tbody>
-                     </table>
-                  </div>
-               </CardContent>
-            </Card>
-         </div>
+      {/* Advanced Navigation Tabs */}
+      <div className="flex items-center gap-2 p-2 bg-slate-100 rounded-[2.5rem] w-fit shadow-inner border border-slate-200/50">
+        {[
+          { id: 'performance', icon: <Activity size={16} />, label: 'Resumen Operativo' },
+          { id: 'vs_analytics', icon: <GitCompare size={16} />, label: 'VS Analytics' },
+          { id: 'intelligence', icon: <BrainCircuit size={16} />, label: 'Team AI Intel' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setCurrentTab(tab.id as TabType)}
+            className={`flex items-center gap-3 px-8 py-4 rounded-[2rem] text-[10px] font-black uppercase tracking-widest transition-all ${
+              currentTab === tab.id 
+                ? 'bg-white text-brand-600 shadow-xl' 
+                : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-         <Card className="border-0 shadow-lg bg-rose-50 text-rose-900 rounded-[2rem] p-6">
-            <div className="flex items-center gap-3 mb-2">
-               <Flame size={16} className="text-rose-600" />
-               <span className="text-[10px] font-black uppercase tracking-widest">Riesgo Burnout</span>
-            </div>
-            <p className="text-xl font-black">{metrics.burnoutList.length || 0} Miembros</p>
-            <p className="text-[10px] font-medium opacity-70 mt-1">Carga crítica acumulada</p>
-         </Card>
-         <Card className="border-0 shadow-lg bg-amber-50 text-amber-900 rounded-[2rem] p-6">
-            <div className="flex items-center gap-3 mb-2">
-               <Hourglass size={16} className="text-amber-600" />
-               <span className="text-[10px] font-black uppercase tracking-widest">Aging Tickets</span>
-            </div>
-            <p className="text-xl font-black">{metrics.agingTickets} Items</p>
-            <p className="text-[10px] font-medium opacity-70 mt-1">Backlog {'>'}15 días</p>
-         </Card>
-         <Card className="border-0 shadow-lg bg-indigo-50 text-indigo-900 rounded-[2rem] p-6">
-            <div className="flex items-center gap-3 mb-2">
-               <Scale size={16} className="text-indigo-600" />
-               <span className="text-[10px] font-black uppercase tracking-widest">Desbalance</span>
-            </div>
-            <p className="text-xl font-black">+{metrics.imbalancePct}%</p>
-            <p className="text-[10px] font-medium opacity-70 mt-1">Vs promedio capacidad</p>
-         </Card>
-         <Card className="border-0 shadow-lg bg-emerald-50 text-emerald-900 rounded-[2rem] p-6">
-            <div className="flex items-center gap-3 mb-2">
-               <Zap size={16} className="text-emerald-600" />
-               <span className="text-[10px] font-black uppercase tracking-widest">Throughput</span>
-            </div>
-            <p className="text-xl font-black">{metrics.throughput}</p>
-            <p className="text-[10px] font-medium opacity-70 mt-1">Tickets/Mes promedio</p>
-         </Card>
-      </div>
+      {currentTab === 'performance' && (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-12">
+          
+          <TeamMetricsCards 
+            metrics={metrics as any} 
+            onCardClick={(type: MetricType) => setActiveMetric(type)}
+          />
+
+          <TeamHallOfFame performers={metrics.topThree} onSelect={setSelectedMember} />
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+             <div className="lg:col-span-4">
+                <PerformanceRadar data={metrics.radarData} />
+             </div>
+
+             <div className="lg:col-span-8">
+                <Card className="border-0 shadow-2xl rounded-[3.5rem] bg-white border border-slate-100 overflow-hidden h-full">
+                   <CardHeader className="bg-slate-50/30 p-12 border-b border-slate-100 flex justify-between items-center">
+                      <div className="space-y-1 text-left">
+                        <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Benchmarking</p>
+                        <h4 className="text-3xl font-black text-slate-900 tracking-tighter">Comparativa Operativa</h4>
+                      </div>
+                      <div className="flex items-center gap-4">
+                         <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-4 py-2 rounded-full">Auditoría Individual</span>
+                      </div>
+                   </CardHeader>
+                   <CardContent className="p-0">
+                      <div className="overflow-x-auto text-left">
+                         <table className="w-full">
+                            <thead className="bg-[#fbfcff] border-b border-slate-50">
+                               <tr>
+                                  <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-slate-400">Responsable</th>
+                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-slate-400">Total</th>
+                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">Score Eff.</th>
+                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">MTTR (d)</th>
+                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-emerald-500">Resuelto</th>
+                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-brand-500">% Cumpl.</th>
+                                  <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Estado</th>
+                               </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                               {metrics.collabList.map((c, i) => (
+                                  <tr 
+                                     key={i} 
+                                     className="hover:bg-slate-50/50 transition-all cursor-pointer group"
+                                     onClick={() => setSelectedMember(c)}
+                                  >
+                                     <td className="px-10 py-6 font-bold text-slate-800 text-sm">
+                                        <div className="flex items-center gap-4">
+                                           <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black ${String(c.name).includes('Promedio') ? 'bg-slate-100 text-slate-400' : 'bg-brand-50 text-brand-600'}`}>
+                                              {String(c.name).charAt(0)}
+                                           </div>
+                                           <span className="group-hover:text-brand-600 transition-colors uppercase tracking-tight">{c.name}</span>
+                                           {c.isBurnoutRisk && <Flame size={14} className="text-rose-500 animate-pulse" />}
+                                        </div>
+                                     </td>
+                                     <td className="px-6 py-6 font-mono text-slate-600 font-bold">{c.total}</td>
+                                     <td className="px-6 py-6 text-center">
+                                        <span className="text-sm font-black text-brand-600">{c.efficiencyScore}</span>
+                                     </td>
+                                     <td className="px-6 py-6 text-center font-mono text-[11px] font-bold text-slate-500 uppercase tracking-tighter">{c.mttrDisplay}</td>
+                                     <td className="px-6 py-6 font-mono text-emerald-600 font-bold">{c.resolved}</td>
+                                     <td className="px-6 py-6 font-mono text-brand-600 font-black">{c.compliance}%</td>
+                                     <td className="px-10 py-6 text-right">
+                                        <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border ${
+                                           c.estado.includes('Elite') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                                           c.estado.includes('Óptimo') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 
+                                           'bg-rose-50 text-rose-600 border-rose-100'
+                                        }`}>
+                                           {c.estado}
+                                        </span>
+                                     </td>
+                                  </tr>
+                               ))}
+                            </tbody>
+                         </table>
+                      </div>
+                   </CardContent>
+                </Card>
+             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+             <Card 
+                onClick={() => setActiveMetric('burnout')}
+                className="border-0 shadow-2xl bg-white border border-rose-100 text-rose-900 rounded-[2.5rem] p-10 cursor-pointer hover:scale-105 transition-all group relative overflow-hidden"
+             >
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:rotate-12 transition-transform"><Flame size={100} /></div>
+                <div className="flex items-center gap-3 mb-6 relative z-10">
+                   <div className="p-2 bg-rose-50 text-rose-600 rounded-xl"><Flame size={18} /></div>
+                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Riesgo Burnout</span>
+                </div>
+                <div className="text-left relative z-10">
+                    <p className="text-4xl font-black text-slate-900 tracking-tighter mb-2">{metrics.burnoutList.length || 0}</p>
+                    <div className="flex items-center gap-2 text-[10px] font-black text-rose-600 uppercase tracking-widest">
+                       Analizar Factores <ArrowRight size={12} />
+                    </div>
+                </div>
+             </Card>
+             
+             <Card 
+                onClick={() => setActiveMetric('aging')}
+                className="border-0 shadow-2xl bg-white border border-amber-100 text-amber-900 rounded-[2.5rem] p-10 cursor-pointer hover:scale-105 transition-all group relative overflow-hidden"
+             >
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:rotate-12 transition-transform"><Hourglass size={100} /></div>
+                <div className="flex items-center gap-3 mb-6 relative z-10">
+                   <div className="p-2 bg-amber-50 text-amber-600 rounded-xl"><Hourglass size={18} /></div>
+                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Aging Tickets</span>
+                </div>
+                <div className="text-left relative z-10">
+                    <p className="text-4xl font-black text-slate-900 tracking-tighter mb-2">{metrics.agingTickets}</p>
+                    <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase tracking-widest">
+                        Diagnosis <ArrowRight size={12} />
+                    </div>
+                </div>
+             </Card>
+
+             <Card 
+                onClick={() => setActiveMetric('imbalance')}
+                className="border-0 shadow-2xl bg-white border border-indigo-100 text-indigo-900 rounded-[2.5rem] p-10 cursor-pointer hover:scale-105 transition-all group relative overflow-hidden"
+             >
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:rotate-12 transition-transform"><Scale size={100} /></div>
+                <div className="flex items-center gap-3 mb-6 relative z-10">
+                   <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Scale size={18} /></div>
+                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Backlog Balance</span>
+                </div>
+                <div className="text-left relative z-10">
+                    <p className="text-4xl font-black text-slate-900 tracking-tighter mb-2">+{metrics.imbalancePct}%</p>
+                    <div className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase tracking-widest">
+                       Equidad <ArrowRight size={12} />
+                    </div>
+                </div>
+             </Card>
+
+             <Card 
+                onClick={() => setActiveMetric('throughput')}
+                className="border-0 shadow-2xl bg-white border border-emerald-100 text-emerald-900 rounded-[2.5rem] p-10 cursor-pointer hover:scale-105 transition-all group relative overflow-hidden"
+             >
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:rotate-12 transition-transform"><Zap size={100} /></div>
+                <div className="flex items-center gap-3 mb-6 relative z-10">
+                   <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><Zap size={18} /></div>
+                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Throughput</span>
+                </div>
+                <div className="text-left relative z-10">
+                    <p className="text-4xl font-black text-slate-900 tracking-tighter mb-2">{metrics.throughput}</p>
+                    <div className="flex items-center gap-2 text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+                       Velocidad <ArrowRight size={12} />
+                    </div>
+                </div>
+             </Card>
+          </div>
+        </motion.div>
+      )}
+
+      {currentTab === 'vs_analytics' && (
+        <VSPerformanceAnalytics metrics={metrics} allData={filteredData} />
+      )}
+
+      {currentTab === 'intelligence' && (
+        <TeamIntelligenceInsights metrics={metrics} />
+      )}
+
+      <AnalyticalBreakdownPanel 
+        isOpen={!!activeMetric}
+        onClose={() => setActiveMetric(null)}
+        metricType={activeMetric}
+        metrics={metrics}
+        data={filteredData}
+      />
 
       <IndividualDeepDiveModal 
         member={selectedMember} 

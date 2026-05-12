@@ -34,6 +34,15 @@
     @apply font-sans text-slate-600 bg-slate-50 selection:bg-brand-100 selection:text-brand-900;
     font-feature-settings: "cv02", "cv03", "cv04", "ss01";
   }
+  
+  @media (max-width: 1400px) {
+    body {
+      zoom: 0.75;
+      -moz-transform: scale(0.75);
+      -moz-transform-origin: top center;
+    }
+  }
+  
   h1, h2, h3, h4 {
     @apply text-slate-900 tracking-tight font-semibold;
   }
