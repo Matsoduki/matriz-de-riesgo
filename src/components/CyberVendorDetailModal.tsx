@@ -51,7 +51,7 @@ export const CyberVendorDetailModal: React.FC<Props> = ({
             <div className="flex items-center gap-3 mb-4">
               <div className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
               <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">
-                Intelligence Insight / Socio Estratégico
+                Hallazgo Analítico / Socio Estratégico
               </p>
             </div>
             <h3 className="text-4xl font-black tracking-tighter text-white mb-8">

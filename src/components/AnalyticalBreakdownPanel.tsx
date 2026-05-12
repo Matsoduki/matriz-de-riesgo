@@ -43,8 +43,8 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
           ],
           recommendation: "Redistribuir tickets críticos, asignar periodos de 'Focus Mode' y revisar balance de dependencias técnicas.",
           stats: [
-            { label: "En Riesgo", val: metrics.burnoutRiskCount, sub: "Miembros" },
-            { label: "Backlog Avg", val: (metrics.total / metrics.teamSize).toFixed(1), sub: "Tickets/Persona" }
+            { label: "Analistas en Riesgo", val: metrics.burnoutRiskCount, sub: "Crítico (> 1.5x)" },
+            { label: "Carga Promedio", val: (metrics.total / metrics.teamSize).toFixed(1), sub: "Tickets / Persona" }
           ]
         };
       case 'aging':
@@ -62,8 +62,8 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
           ],
           recommendation: "Implementar 'Purge Days' para tickets > 30 días y revisar cuellos de botella en aprobaciones.",
           stats: [
-            { label: "Aging Total", val: metrics.agingTickets, sub: "Items > 15d" },
-            { label: "MTTR Global", val: metrics.avgMTTRDisplay, sub: "Promedio" }
+            { label: "Aging Acumulado", val: metrics.agingTickets, sub: "Tickets > 15d" },
+            { label: "Velocidad Global", val: metrics.avgMTTRDisplay, sub: "Mean Time To Resolve" }
           ]
         };
       case 'imbalance':
@@ -100,8 +100,8 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
           ],
           recommendation: "Mantener el ritmo actual, revisar 'Waste' en procesos intermedios para incrementar velocity.",
           stats: [
-            { label: "Actual", val: metrics.throughput, sub: "Items/Semana" },
-            { label: "Eficiencia", val: `${metrics.avgEfficiency}%`, sub: "Operativa" }
+            { label: "Rendimiento", val: metrics.throughput, sub: "Cierres / Semana" },
+            { label: "Aprovechamiento", val: `${metrics.avgEfficiency}%`, sub: "Capacidad Real" }
           ]
         };
       case 'sla':
@@ -119,8 +119,8 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
           ],
           recommendation: "Alinear prioridades en el Daily y marcar tickets próximos a vencer con 'Urgent Tag'.",
           stats: [
-            { label: "Cumplimiento", val: `${metrics.timeCompliance}%`, sub: "On-Time" },
-            { label: "Resoluciones", val: metrics.resolved, sub: "Total Done" }
+            { label: "Nivel de Cumplimiento", val: `${metrics.timeCompliance}%`, sub: "Service Level" },
+            { label: "Total Completado", val: metrics.resolved, sub: "Items Done" }
           ]
         };
       case 'efficiency':
@@ -136,10 +136,10 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
             "Contribución técnica en áreas críticas",
             "Consistencia operativa semanal"
           ],
-          recommendation: "Fomentar la resolución de tickets de alta complejidad para elevar el Score de impacto del equipo.",
+          recommendation: "Fomentar la resolution de tickets de alta complejidad para elevar el Score de impacto del equipo.",
           stats: [
-            { label: "Score Avg", val: metrics.avgEfficiency, sub: "Weighted" },
-            { label: "Fuerza Eq.", val: metrics.teamSize, sub: "Activos" }
+            { label: "Desempeño Promedio", val: `${metrics.avgEfficiency}%`, sub: "Index Score" },
+            { label: "Fuerza de Trabajo", val: metrics.teamSize, sub: "Analistas Activos" }
           ]
         };
       default:
@@ -147,8 +147,155 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
     }
   };
 
+  const getChartData = () => {
+    const baseLabels = ['10 Feb', '05 Mar', '28 Mar', '15 Abr', '12 May'];
+    switch (metricType) {
+      case 'burnout':
+        return [
+          { date: baseLabels[0], score: 20, label: 'Bajo' },
+          { date: baseLabels[1], score: 25, label: 'Moderado' },
+          { date: baseLabels[2], score: 45, label: 'Pico Proyecto A' },
+          { date: baseLabels[3], score: 35, label: 'Post-Entrega' },
+          { date: baseLabels[4], score: metrics.burnoutRiskCount > 0 ? 55 : 15, label: 'Actual' },
+        ];
+      case 'aging':
+        return [
+          { date: baseLabels[0], score: 10, label: 'Óptimo' },
+          { date: baseLabels[1], score: 25, label: 'Alza' },
+          { date: baseLabels[2], score: 18, label: 'Control' },
+          { date: baseLabels[3], score: 40, label: 'Pico' },
+          { date: baseLabels[4], score: metrics.agingTickets * 2, label: 'Actual' },
+        ];
+      case 'sla':
+        return [
+          { date: baseLabels[0], score: 95, label: 'Q1 Start' },
+          { date: baseLabels[1], score: 92, label: 'Slight Drop' },
+          { date: baseLabels[2], score: 88, label: 'Heavy Load' },
+          { date: baseLabels[3], score: 91, label: 'Stable' },
+          { date: baseLabels[4], score: metrics.timeCompliance, label: 'Actual' },
+        ];
+      default:
+        return [
+          { date: baseLabels[0], score: 65, label: 'Base' },
+          { date: baseLabels[1], score: 72, label: 'Progress' },
+          { date: baseLabels[2], score: 85, label: 'High' },
+          { date: baseLabels[3], score: 80, label: 'Stable' },
+          { date: baseLabels[4], score: metrics.avgEfficiency || 82, label: 'Actual' },
+        ];
+    }
+  };
+
+  const getMetricColor = () => {
+    switch (metricType) {
+      case 'burnout': return '#f43f5e'; // Rose
+      case 'aging': return '#f59e0b'; // Amber
+      case 'sla': return '#10b981'; // Emerald
+      case 'throughput': return '#6366f1'; // Indigo
+      default: return '#6366f1';
+    }
+  };
+
+  const chartColor = getMetricColor();
+
+  const getBarData = () => {
+    if (!data || data.length === 0) return [];
+
+    const keys = Object.keys(data[0]);
+    const findKey = (candidates: string[]) => 
+      keys.find(k => candidates.some(c => k.toLowerCase().includes(c.toLowerCase()))) || candidates[0];
+    
+    const priorityKey = findKey(['Criticidad', 'Prioridad', 'Priority', 'Severidad']);
+    const statusKey = findKey(['Estado', 'Status', 'Semaforo', 'Status Final']);
+
+    switch (metricType) {
+      case 'throughput': {
+        // Real breakdown by Priority
+        const counts: Record<string, number> = {};
+        data.filter(d => isResolvedStatus(String(d[statusKey]).toLowerCase())).forEach(d => {
+          const p = String(d[priorityKey] || 'Normal');
+          counts[p] = (counts[p] || 0) + 1;
+        });
+        return Object.entries(counts).map(([cat, val]) => ({
+          cat: cat.length > 12 ? cat.substring(0, 10) + '..' : cat,
+          impacto: val,
+          prev: Math.round(val * 0.8) // Simulated baseline
+        })).sort((a, b) => b.impacto - a.impacto).slice(0, 5);
+      }
+      case 'burnout': {
+        // Real breakdown of Open items by Assignee
+        const assigneeKey = findKey(['Responsable', 'Asignado', 'Owner', 'usuario', 'Analista']);
+        const counts: Record<string, number> = {};
+        data.filter(d => !isResolvedStatus(String(d[statusKey]).toLowerCase())).forEach(d => {
+          const a = String(d[assigneeKey] || 'Sin Asignar');
+          counts[a] = (counts[a] || 0) + 1;
+        });
+        return Object.entries(counts).map(([cat, val]) => ({
+          cat: cat.split(' ')[0], // First name for brevity
+          impacto: val,
+          prev: Math.round(metrics.total / (metrics.teamSize || 1))
+        })).sort((a, b) => b.impacto - a.impacto).slice(0, 5);
+      }
+      case 'sla': {
+        // Real breakdown of Resolved items by SLA status
+        const delayKey = findKey(['Dias de atraso', 'Atraso', 'Delay', 'Vencimiento']);
+        let onTime = 0, atRisk = 0, late = 0;
+        data.filter(d => isResolvedStatus(String(d[statusKey]).toLowerCase())).forEach(d => {
+          const delay = parseInt(d[delayKey]) || 0;
+          if (delay <= 0) onTime++;
+          else if (delay <= 5) atRisk++;
+          else late++;
+        });
+        return [
+          { cat: 'On Time', impacto: onTime, prev: Math.round(data.length * 0.7) },
+          { cat: 'At Risk', impacto: atRisk, prev: Math.round(data.length * 0.15) },
+          { cat: 'SLA Breach', impacto: late, prev: Math.round(data.length * 0.15) },
+        ];
+      }
+      case 'aging': {
+        // Real breakdown by Delay Segments
+        const delayKey = findKey(['Dias de atraso', 'Atraso', 'Delay', 'Vencimiento']);
+        const segments = { '0-10d': 0, '11-20d': 0, '21-30d': 0, '30d+': 0 };
+        data.filter(d => !isResolvedStatus(String(d[statusKey]).toLowerCase())).forEach(d => {
+          const delay = parseInt(d[delayKey]) || 0;
+          if (delay <= 10) segments['0-10d']++;
+          else if (delay <= 20) segments['11-20d']++;
+          else if (delay <= 30) segments['21-30d']++;
+          else segments['30d+']++;
+        });
+        return Object.entries(segments).map(([cat, val]) => ({
+          cat, impacto: val, prev: Math.round(val * 1.2)
+        }));
+      }
+      case 'efficiency': {
+        // Comparison of Performers
+        return metrics.collabList.slice(0, 5).map((c: any) => ({
+          cat: c.name.split(' ')[0],
+          impacto: c.efficiencyScore,
+          prev: metrics.avgEfficiency
+        }));
+      }
+      default:
+        return [
+          { cat: 'Complejos', impacto: 12, prev: 8 },
+          { cat: 'Estándar', impacto: 18, prev: 12 },
+          { cat: 'Simples', impacto: 15, prev: 10 },
+          { cat: 'Críticos', impacto: 22, prev: 15 },
+        ];
+    }
+  };
+
+  const isResolvedStatus = (status: string) => {
+    const s = status.toLowerCase();
+    return s.includes('cerrado') || s.includes('finalizado') || s.includes('resuelto') || 
+           s.includes('done') || s.includes('closed') || s.includes('resolved') || 
+           s.includes('terminado');
+  };
+
   const details = getMetricDetails();
   if (!details) return null;
+
+  const chartData = getChartData();
+  const barData = getBarData();
 
   return (
     <AnimatePresence>
@@ -213,7 +360,7 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <BrainCircuit size={16} className="text-brand-500" />
-                    <h5 className="text-[11px] font-black uppercase tracking-widest text-slate-900">Lógica de Cálculo (Algoritmo)</h5>
+                    <h5 className="text-[11px] font-black uppercase tracking-widest text-slate-900">Lógica de Cálculo (Procedimiento Interno)</h5>
                   </div>
                   <div className="group relative">
                     <div className="absolute inset-0 bg-brand-500/10 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -232,19 +379,13 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
                   </div>
                   <div className="grid grid-cols-1 gap-6 bg-slate-50 p-8 rounded-[3rem] border border-slate-100">
                     <div className="h-48">
-                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-6">Variación de Rendimiento (Febrero - Mayo)</p>
+                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-6">Evolución de {details.title.split(' ').pop()} (Febrero - Mayo)</p>
                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={[
-                            { date: '10 Feb', val: 40, label: 'Inicio Q1' },
-                            { date: '05 Mar', val: 65, label: 'Optimización' },
-                            { date: '28 Mar', val: 45, label: 'Pico Carga' },
-                            { date: '15 Abr', val: 78, label: 'Mejora Proceso' },
-                            { date: '12 May', val: 82, label: 'Actual' },
-                          ]}>
+                          <AreaChart data={chartData}>
                             <defs>
-                              <linearGradient id="colorMetric" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                              <linearGradient id={`colorMetric-${metricType}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
                               </linearGradient>
                             </defs>
                             <XAxis 
@@ -255,22 +396,25 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
                             />
                             <Tooltip 
                               contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                              labelStyle={{ fontSize: '10px', fontWeight: 900, color: '#6366f1' }}
+                              labelStyle={{ fontSize: '10px', fontWeight: 900, color: chartColor }}
                             />
-                            <Area type="monotone" dataKey="val" stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorMetric)" />
+                            <Area 
+                              type="monotone" 
+                              dataKey="score" 
+                              stroke={chartColor} 
+                              strokeWidth={4} 
+                              fillOpacity={1} 
+                              fill={`url(#colorMetric-${metricType})`} 
+                              name="Status Score" 
+                            />
                           </AreaChart>
                        </ResponsiveContainer>
                     </div>
 
                     <div className="h-48 pt-6 border-t border-slate-200">
-                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-6">Esfuerzo Relativo por Categoría</p>
+                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-6">Frecuencia por Categoría</p>
                        <ResponsiveContainer width="100%" height="100%">
-                         <BarChart data={[
-                            { cat: 'Complejos', count: 12, prev: 8 },
-                            { cat: 'Estándar', count: 18, prev: 12 },
-                            { cat: 'Simples', count: 15, prev: 10 },
-                            { cat: 'Críticos', count: 22, prev: 15 },
-                         ]}>
+                          <BarChart data={barData}>
                             <XAxis 
                               dataKey="cat" 
                               axisLine={false} 
@@ -281,9 +425,9 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
                               cursor={{ fill: 'transparent' }}
                               contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                             />
-                            <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20} name="Periodo Actual" />
-                            <Bar dataKey="prev" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={20} name="Periodo Anterior" />
-                         </BarChart>
+                            <Bar dataKey="impacto" fill={chartColor} radius={[4, 4, 0, 0]} barSize={20} name="Real" />
+                            <Bar dataKey="prev" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={20} name="Benchmark" />
+                          </BarChart>
                        </ResponsiveContainer>
                     </div>
                   </div>

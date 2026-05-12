@@ -6,6 +6,7 @@ import { SCOPE_MAPPING, AMBITO_GROUPS, CYBER_SLA_POLICIES, PriorityLevel } from 
 import { motion, AnimatePresence } from 'motion/react';
 import { isCriticalPriority } from './CyberView';
 import { DetailsModal } from './DetailsModal';
+import { CyberRowDetailModal } from './CyberRowDetailModal';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 
@@ -16,6 +17,7 @@ interface Props {
 export const GapFinderView: React.FC<Props> = ({ data }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFullDetails, setShowFullDetails] = useState(false);
+  const [selectedGap, setSelectedGap] = useState<any | null>(null);
 
   // Filter out ghost rows (empty or just placeholder dashes)
   const cleanData = useMemo(() => {
@@ -217,7 +219,7 @@ export const GapFinderView: React.FC<Props> = ({ data }) => {
         <div className="space-y-6 max-w-4xl relative z-10">
           <div className="flex items-center gap-4">
              <div className="h-2 w-2 rounded-full bg-brand-500 animate-pulse shadow-[0_0_12px_rgba(99,102,241,0.8)]" />
-             <span className="text-[11px] font-black text-brand-500 uppercase tracking-[0.5em]">MAC Intelligence & Cyber Resilience Analysis</span>
+             <span className="text-[11px] font-black text-brand-500 uppercase tracking-[0.5em]">Análisis de Riesgos MAC & Resiliencia</span>
           </div>
           <h2 className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight leading-[0.9]">Gap Finder<span className="text-brand-600">.</span></h2>
           <p className="text-lg font-bold text-slate-500 max-w-2xl leading-relaxed">
@@ -489,7 +491,7 @@ export const GapFinderView: React.FC<Props> = ({ data }) => {
               <h3 className="text-3xl font-black text-slate-900 tracking-tight">Perfiles de Hallazgos MAC</h3>
             </div>
             <div className="px-6 py-3 bg-brand-50 rounded-2xl border border-brand-100">
-               <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest">Inteligencia de Riesgos</span>
+               <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest">Analítica de Riesgos</span>
             </div>
           </CardHeader>
           <CardContent className="p-12">
@@ -642,7 +644,8 @@ export const GapFinderView: React.FC<Props> = ({ data }) => {
                           hidden: { opacity: 0, x: -10 },
                           visible: { opacity: 1, x: 0 }
                         }}
-                        className="p-6 rounded-[2rem] bg-white border border-slate-100 shadow-sm hover:shadow-xl hover:border-brand-100 transition-all group"
+                        onClick={() => setSelectedGap(item)}
+                        className="p-6 rounded-[2rem] bg-white border border-slate-100 shadow-sm hover:shadow-xl hover:border-brand-100 transition-all group cursor-pointer"
                       >
                         <div className="flex justify-between items-start mb-4">
                            <div className="flex flex-col gap-1">
@@ -681,6 +684,15 @@ export const GapFinderView: React.FC<Props> = ({ data }) => {
            </div>
          )}
       </Modal>
+
+      <CyberRowDetailModal
+        isOpen={!!selectedGap}
+        onClose={() => setSelectedGap(null)}
+        row={selectedGap}
+        metrics={{ priorityKey: 'Criticidad', statusKey: 'SEMAFORO' }}
+        isCriticalPriority={isCriticalPriority}
+        displayDate={(d) => d || 'S/D'}
+      />
 
       </div>
   );

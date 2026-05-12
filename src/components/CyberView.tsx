@@ -53,6 +53,7 @@ import {
   Legend,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
+import { EnterpriseTable } from './EnterpriseTable';
 import {
   CYBER_SLA_POLICIES,
   SCOPE_MAPPING,
@@ -171,6 +172,28 @@ export default function CyberView({ data, title }: Props) {
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<string | null>(null);
 
+  const resetFilters = () => {
+    setSearchTerm("");
+    setPrestadorFilter("all");
+    setPriorityFilter("all");
+    setResponsableFilter("all");
+    setStatusFilter("all");
+    setSlaFilter("all");
+    setCategoryFilter("all");
+    setProjectFilter("all");
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters =
+    searchTerm !== "" ||
+    prestadorFilter !== "all" ||
+    priorityFilter !== "all" ||
+    responsableFilter !== "all" ||
+    statusFilter !== "all" ||
+    slaFilter !== "all" ||
+    categoryFilter !== "all" ||
+    projectFilter !== "all";
+
   const handleKpiClick = (type: 'chi' | 'critical' | 'sla' | 'aging') => {
     let modalTitle = "";
     let modalData = [];
@@ -181,11 +204,11 @@ export default function CyberView({ data, title }: Props) {
         modalData = filteredData;
         break;
       case 'critical':
-        modalTitle = "Gaps Críticos Identificados";
+        modalTitle = "Riesgos Críticos Consolidados";
         modalData = filteredData.filter(r => isCriticalPriority(r[keys?.priorityKey || ""]));
         break;
       case 'sla':
-        modalTitle = "Brechas de Cumplimiento (SLA Breach)";
+        modalTitle = "Desviaciones de Cumplimiento (SLA Breach)";
         modalData = filteredData.filter(row => {
           const priorityRaw = String(row[keys?.priorityKey || ""] || "").trim();
           const isCritical = isCriticalPriority(priorityRaw);
@@ -203,7 +226,7 @@ export default function CyberView({ data, title }: Props) {
         break;
       case 'aging':
         const avg = metrics.mttc;
-        modalTitle = `Postura de Exposición: Gaps con Aging > ${avg} días`;
+        modalTitle = `Riesgos con Envejecimiento > ${avg} días`;
         modalData = filteredData.filter(row => {
           const dateVal = row[keys?.dateKey || ""];
           if (!dateVal) return false;
@@ -782,56 +805,72 @@ export default function CyberView({ data, title }: Props) {
     const criticalDensityVal = Math.round((criticalCount / (filteredData.length || 1)) * 100);
     const coverageVal = Math.round(((filteredData.length - governanceGaps) / (filteredData.length || 1)) * 100);
     
-    // Robust Weekly logic for cards (Monday-start)
-    const getMondayOfCurrentWeek = () => {
+    // Saturday-based Weekly Cutoff logic
+    const getSaturdayCutoff = (weeksAgo = 0) => {
       const today = new Date();
-      const day = today.getDay(); // 0 is Sun, 1 is Mon...
-      const diff = today.getDate() - day + (day === 0 ? -6 : 1); 
-      const monday = new Date(today.getFullYear(), today.getMonth(), diff);
-      monday.setHours(0, 0, 0, 0);
-      return monday;
+      const day = today.getDay(); // 0:Sun, 1:Mon, 2:Tue, 3:Wed, 4:Thu, 5:Fri, 6:Sat
+      // Days since start of this week (last Saturday): Sat=0, Sun=1, Mon=2, Tue=3, Wed=4, Thu=5, Fri=6
+      const daysSinceSaturday = (day + 1) % 7;
+      const targetSaturday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceSaturday - (weeksAgo * 7));
+      targetSaturday.setHours(0, 0, 0, 0);
+      return targetSaturday;
     };
-    const currentMonday = getMondayOfCurrentWeek();
+
+    const currentWeekStart = getSaturdayCutoff(0);
+    const prevWeekStart = getSaturdayCutoff(1);
+    
     let weeklyCreated = 0;
     let weeklyResolved = 0;
+    let prevWeeklyCreated = 0;
+    let prevWeeklyResolved = 0;
 
     filteredData.forEach(row => {
-      // Logic for new items created this week
       const createdField = row[dateKey];
+      const statusValue = row[statusKey];
+      const isResolved = isResolvedStatus(statusValue);
+
+      // Created logic
       if (createdField) {
         const cIso = getISOFromExcelDate(createdField);
         if (cIso) {
           const cDate = new Date(cIso);
-          if (cDate >= currentMonday) {
+          if (cDate >= currentWeekStart) {
             weeklyCreated++;
+          } else if (cDate >= prevWeekStart && cDate < currentWeekStart) {
+            prevWeeklyCreated++;
           }
         }
       }
 
-      // Logic for items resolved this week
-      // If we have a resolution status, and it's resolved, 
-      // we assume it was resolved recently if it has no resolution date.
-      // But ideally we'd look for an 'UpdatedAt' or 'ResolutionDate' column.
+      // Resolved logic
       const resolutionDateKey = findColumnKey(row, ['Fecha de resolución', 'Resolved', 'Fecha Termino', 'Fecha Fin']);
+      let rDate: Date | null = null;
+      
       if (resolutionDateKey && row[resolutionDateKey]) {
         const rIso = getISOFromExcelDate(row[resolutionDateKey]);
-        if (rIso) {
-          const rDate = new Date(rIso);
-          if (rDate >= currentMonday && isResolvedStatus(row[statusKey])) {
-            weeklyResolved++;
-          }
-        }
-      } else if (isResolvedStatus(row[statusKey])) {
-        // Fallback: If no resolution date, check if the main date is this week (items created and resolved this week)
+        if (rIso) rDate = new Date(rIso);
+      } else if (isResolved) {
+        // Fallback to creation date if no resolution date but status is resolved
         const cIso = getISOFromExcelDate(createdField);
-        if (cIso) {
-          const cDate = new Date(cIso);
-          if (cDate >= currentMonday) {
-            weeklyResolved++;
-          }
+        if (cIso) rDate = new Date(cIso);
+      }
+
+      if (rDate && isResolved) {
+        if (rDate >= currentWeekStart) {
+          weeklyResolved++;
+        } else if (rDate >= prevWeekStart && rDate < currentWeekStart) {
+          prevWeeklyResolved++;
         }
       }
     });
+
+    const calculateDelta = (curr: number, prev: number) => {
+      if (prev === 0) return curr > 0 ? 100 : 0;
+      return Math.round(((curr - prev) / prev) * 100);
+    };
+
+    const weeklyCreatedDelta = calculateDelta(weeklyCreated, prevWeeklyCreated);
+    const weeklyResolvedDelta = calculateDelta(weeklyResolved, prevWeeklyResolved);
 
     // Balanced MTTC Score (Normalized 0-100, where < 15 days is 100)
     const mttcVal = Math.round(
@@ -1010,9 +1049,11 @@ export default function CyberView({ data, title }: Props) {
       mttc,
       weeklyCreated,
       weeklyResolved,
+      weeklyCreatedDelta,
+      weeklyResolvedDelta,
+      operationalInsights: insights,
       healthScore: chiVal,
       trends,
-      copilotInsights: insights,
       prestadores: Object.keys(prestadorCount),
       priorities: Object.keys(priorityCount),
       responsables: Object.keys(responsableCount).sort(),
@@ -1036,7 +1077,6 @@ export default function CyberView({ data, title }: Props) {
     return filteredData.slice(start, start + pageSize);
   }, [filteredData, currentPage]);
 
-  const totalPages = Math.ceil(filteredData.length / pageSize);
   const [trendViewType, setTrendViewType] = useState<"cumulative" | "monthly">(
     "cumulative",
   );
@@ -1057,28 +1097,6 @@ export default function CyberView({ data, title }: Props) {
     categoryFilter,
     projectFilter,
   ]);
-
-  const resetFilters = () => {
-    setSearchTerm("");
-    setPrestadorFilter("all");
-    setPriorityFilter("all");
-    setResponsableFilter("all");
-    setStatusFilter("all");
-    setSlaFilter("all");
-    setCategoryFilter("all");
-    setProjectFilter("all");
-    setCurrentPage(1);
-  };
-
-  const hasActiveFilters =
-    searchTerm !== "" ||
-    prestadorFilter !== "all" ||
-    priorityFilter !== "all" ||
-    responsableFilter !== "all" ||
-    statusFilter !== "all" ||
-    slaFilter !== "all" ||
-    categoryFilter !== "all" ||
-    projectFilter !== "all";
 
   const vendorDetailData = useMemo(() => {
     if (!selectedVendor) return [];
@@ -1161,6 +1179,39 @@ export default function CyberView({ data, title }: Props) {
     });
   }, [cleanData]);
 
+  const displayColumnsData = useMemo(() => {
+    return displayColumns.map(key => ({
+      key,
+      label: key,
+      sortable: true,
+      type: (key.toLowerCase() === 'semaforo' || key.toLowerCase() === 'status' || key.toLowerCase() === 'estado') ? 'badge' as const : 'text' as const,
+      statusConfig: (key.toLowerCase() === 'semaforo' || key.toLowerCase() === 'status' || key.toLowerCase() === 'estado') ? {
+        'resuelto': { label: 'Resuelto', color: '#22c55e', bg: '#f0fdf4', text: '#166534' },
+        'abierto': { label: 'Abierto', color: '#3b82f6', bg: '#eff6ff', text: '#1e40af' },
+        'en curso': { label: 'En curso', color: '#eab308', bg: '#fefce8', text: '#854d0e' },
+        'atrasado': { label: 'Atrasado', color: '#ef4444', bg: '#fef2f2', text: '#991b1b' },
+      } : undefined,
+      render: (val: any) => {
+        let displayVal = val;
+        if (key.toLowerCase().includes('fecha')) displayVal = displayDate(val);
+        const isPriority = key.toLowerCase().includes("criticid") || key.toLowerCase().includes("prioridad");
+        
+        if (isPriority) {
+          const lowerVal = String(val).toLowerCase().trim();
+          const color = PRIORITIES_COLORS[lowerVal] || '#cbd5e1';
+          return (
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+              <span className="font-bold">{String(val)}</span>
+            </div>
+          );
+        }
+        
+        return <span className={key.toLowerCase().includes('id') || key.toLowerCase().includes('vulnerabilidades') ? 'font-mono' : ''}>{String(displayVal || '')}</span>;
+      }
+    }));
+  }, [displayColumns]);
+
   if (!cleanData || cleanData.length === 0) return null;
 
   return (
@@ -1175,7 +1226,7 @@ export default function CyberView({ data, title }: Props) {
             </span>
           </div>
           <h1 className="text-5xl font-black text-slate-900 tracking-tighter">
-            MAC<span className="text-brand-600">.</span> Matriz de Actividades
+            MAC<span className="text-brand-600">.</span> Matriz de Riesgo
           </h1>
           <p className="text-sm text-slate-500 mt-2 font-medium">
             Control estratégico de ciberseguridad, riesgos y resiliencia táctica.
@@ -1332,6 +1383,8 @@ export default function CyberView({ data, title }: Props) {
           mttr: String(metrics.mttc),
           weeklyCreated: metrics.weeklyCreated,
           weeklyResolved: metrics.weeklyResolved,
+          weeklyCreatedDelta: metrics.weeklyCreatedDelta,
+          weeklyResolvedDelta: metrics.weeklyResolvedDelta,
           chiVal: metrics.chiVal
         }}
       />
@@ -1343,10 +1396,10 @@ export default function CyberView({ data, title }: Props) {
         colors={STATUS_COLORS}
       />
 
-      {/* Strategic Insights Section */}
+      {/* Panel de Análisis Táctico */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {metrics.activityInsights?.length > 0 ? (
-          metrics.activityInsights.map((insight: any, idx: number) => (
+        {metrics.operationalInsights?.length > 0 ? (
+          metrics.operationalInsights.map((insight: any, idx: number) => (
             <motion.div
               key={idx}
               initial={{ opacity: 0, y: 20 }}
@@ -1388,7 +1441,7 @@ export default function CyberView({ data, title }: Props) {
           ))
         ) : (
           <div className="col-span-3 p-12 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200 text-center">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Esperando Generación de Inteligencia Estratégica...</p>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Esperando Generación de Hallazgos Estratégicos...</p>
           </div>
         )}
       </div>
@@ -1659,312 +1712,104 @@ export default function CyberView({ data, title }: Props) {
         </Card>
       </div>
 
-      {/* Main Log */}
-      <Card
-        id="main-log-table"
-        className="border-0 shadow-xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden"
-      >
-        <CardHeader className="bg-slate-50/50 border-b border-slate-100 p-12">
-          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-10">
-            <div className="space-y-3">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">
-                Tactical Integrity Log
-              </span>
-              <h3 className="text-4xl font-black text-slate-900 tracking-tighter leading-none">
-                Gobernanza de Operaciones
-              </h3>
-              <p className="text-sm text-slate-500 font-medium max-w-xl">
-                Auditoría centralizada de activos de ciberseguridad y estados de
-                cumplimiento normativo.
-              </p>
-            </div>
-            <div className="flex flex-col gap-4 w-full xl:w-auto mt-6 xl:mt-0">
-              <div className="relative w-full">
-                <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input
-                  placeholder="Filtrar por nodo, responsable o entidad..."
-                  className="pl-14 bg-white border-slate-200 h-14 rounded-2xl text-sm font-semibold shadow-sm w-full"
+      {/* Posture Explorer Table */}
+      <div className="space-y-6 pt-8">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-slate-100">
+           <div className="flex items-center gap-5">
+              <div className="h-16 w-16 bg-slate-900 text-white rounded-[2rem] flex items-center justify-center shadow-2xl shadow-slate-200 group-hover:rotate-6 transition-transform duration-500">
+                 <Shield size={28} />
+              </div>
+              <div>
+                 <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Explorador de Riesgos MAC</h3>
+                 <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mt-1">Archivo de auditoría y gestión de riesgos 2025</p>
+              </div>
+           </div>
+           <div className="flex items-center gap-3 w-full md:w-auto">
+             <div className="relative flex-1 md:w-64">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Input 
+                  placeholder="Buscar en el archivo..." 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-12 h-12 bg-white border-slate-100 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-brand-500"
                 />
-              </div>
-              <div className="flex flex-wrap gap-4 w-full justify-end max-w-6xl">
-                <div className="flex flex-col gap-2 flex-1 min-w-[140px]">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Prestador</span>
-                  </div>
-                  <Select
-                    value={prestadorFilter}
-                    onChange={(e) => setPrestadorFilter(e.target.value)}
-                    className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
-                  >
-                    <option value="all">Socio ({filterOptions.counts.totalMatches})</option>
-                    {filterOptions.prestadores.map((v: any) => (
-                      <option key={v} value={v}>
-                        {v} ({filterOptions.counts.prestadores[v] || 0})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+             </div>
+             <Button variant="premium" className="rounded-2xl h-12 px-8" onClick={() => setShowDetails(true)}>
+                <ExternalLink size={14} className="mr-2" /> Reporte Full
+             </Button>
+           </div>
+        </div>
 
-                <div className="flex flex-col gap-2 flex-1 min-w-[140px]">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Prioridad</span>
-                  </div>
-                  <Select
-                    value={priorityFilter}
-                    onChange={(e) => setPriorityFilter(e.target.value)}
-                    className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
-                  >
-                    <option value="all">Criticidad ({filterOptions.counts.totalMatches})</option>
-                    {filterOptions.priorities.map((p: any) => (
-                      <option key={p} value={p}>
-                        {p} ({filterOptions.counts.priorities[p] || 0})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+        {/* Dynamic Filter Strip */}
+        <div className="flex flex-wrap items-center gap-3 p-6 bg-[#fbfcff] rounded-[2rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
+           <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[200px]">
+              <div className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg"><Users size={14} /></div>
+              <Select value={prestadorFilter} onChange={(e) => setPrestadorFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
+                 <option value="all">Socio de Negocio</option>
+                 {filterOptions.prestadores.map(p => <option key={p} value={p}>{p}</option>)}
+              </Select>
+           </div>
+           
+           <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[180px]">
+              <div className="p-1.5 bg-rose-50 text-rose-500 rounded-lg"><ShieldAlert size={14} /></div>
+              <Select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
+                 <option value="all">Criticidad</option>
+                 {filterOptions.priorities.map(p => <option key={p} value={p}>{p}</option>)}
+              </Select>
+           </div>
 
-                <div className="flex flex-col gap-2 flex-1 min-w-[140px]">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Responsable</span>
-                  </div>
-                  <Select
-                    value={responsableFilter}
-                    onChange={(e) => setResponsableFilter(e.target.value)}
-                    className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
-                  >
-                    <option value="all">Resp. ({filterOptions.counts.totalMatches})</option>
-                    {filterOptions.responsables.map((r: any) => (
-                      <option key={r} value={r}>
-                        {r} ({filterOptions.counts.responsables[r] || 0})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+           <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[180px]">
+              <div className="p-1.5 bg-emerald-50 text-emerald-500 rounded-lg"><CheckCircle2 size={14} /></div>
+              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
+                 <option value="all">Estado MAC</option>
+                 {filterOptions.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+           </div>
 
-                <div className="flex flex-col gap-2 flex-1 min-w-[140px]">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Estado</span>
-                  </div>
-                  <Select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
-                  >
-                    <option value="all">Estado ({filterOptions.counts.totalMatches})</option>
-                    {filterOptions.statuses.map((s: any) => (
-                      <option key={s} value={s}>
-                        {s} ({filterOptions.counts.statuses[s] || 0})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+           <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[160px]">
+              <div className="p-1.5 bg-amber-50 text-amber-500 rounded-lg"><Clock size={14} /></div>
+              <Select value={slaFilter} onChange={(e) => setSlaFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
+                 <option value="all">SLA Compromiso</option>
+                 {filterOptions.slas.map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+           </div>
 
-                <div className="flex flex-col gap-2 flex-1 min-w-[140px]">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">SLA</span>
-                  </div>
-                  <Select
-                    value={slaFilter}
-                    onChange={(e) => setSlaFilter(e.target.value)}
-                    className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
-                  >
-                    <option value="all">SLA</option>
-                    {filterOptions.slas.map((s: any) => (
-                      <option key={s} value={s}>
-                        {s} ({filterOptions.counts.slas[s] || 0})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+           <div className="h-10 w-[1px] bg-slate-100 mx-2 hidden lg:block" />
 
-                <div className="flex flex-col gap-2 flex-1 min-w-[140px]">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Dimensión</span>
-                  </div>
-                  <Select
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
-                  >
-                    <option value="all">Categoría</option>
-                    {metrics.strategics.map((s: any) => (
-                      <option key={s} value={s}>
-                        {s} ({metrics.strategicCount[s]})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+           {hasActiveFilters && (
+             <Button 
+               variant="ghost" 
+               size="sm" 
+               className="text-[10px] font-black uppercase tracking-[0.15em] text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl"
+               onClick={resetFilters}
+             >
+                Limpiar Filtros
+             </Button>
+           )}
+        </div>
 
-                <div className="flex flex-col gap-2 flex-1 min-w-[180px]">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-1.5 w-1.5 rounded-full bg-purple-500" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Entorno</span>
-                  </div>
-                  <Select
-                    value={projectFilter}
-                    onChange={(e) => setProjectFilter(e.target.value)}
-                    className="bg-white border-slate-200 h-10 lg:h-12 rounded-xl text-[10px] font-black uppercase tracking-widest px-4 shadow-sm w-full"
-                  >
-                    <option value="all">Proyecto / Tarea</option>
-                    {metrics.ambitos.map((a: any) => (
-                      <option key={a} value={a}>
-                        {a} ({metrics.ambitoCount[a]})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                {hasActiveFilters && (
-                  <div className="flex flex-col gap-2">
-                    <div className="h-3.5 invisible" />
-                    <Button
-                      onClick={resetFilters}
-                      className="bg-slate-100 hover:bg-slate-200 text-slate-600 h-10 lg:h-12 px-5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm flex items-center justify-center gap-2 transition-all active:scale-95"
-                    >
-                      <XCircle size={14} />
-                      <span>Limpiar</span>
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto min-h-[400px] flex flex-col justify-center">
-            {filteredData.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
-                   <div className="w-24 h-24 bg-white rounded-[2.5rem] shadow-xl border border-slate-100 flex items-center justify-center mb-6">
-                      <Search className="w-10 h-10 text-brand-400" />
-                   </div>
-                   <h4 className="text-2xl font-black text-slate-900 tracking-tighter mb-2">Sin Resultados</h4>
-                   <p className="text-sm text-slate-500 font-medium max-w-md mb-8">
-                     No se encontraron registros en el Log que coincidan con los filtros aplicados actualmente.
-                   </p>
-                   <Button onClick={resetFilters} className="bg-brand-600 hover:bg-brand-700 text-white rounded-2xl px-10 h-14 text-[11px] font-black uppercase tracking-widest shadow-2xl shadow-brand-500/20">
-                     Resetear Filtros
-                   </Button>
-                </div>
-            ) : (
-            <table className="w-full text-left border-collapse h-full">
-              <thead className="bg-[#fbfcff] border-b border-slate-100">
-                <tr>
-                  {displayColumns.map((key) => (
-                    <th
-                      key={key}
-                      scope="col"
-                      className="px-10 py-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 whitespace-nowrap border-r border-slate-100 last:border-0 font-sans"
-                    >
-                      {key}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {paginatedData.map((row, i) => (
-                  <tr
-                    key={i}
-                    className="group hover:bg-slate-50 transition-all duration-300 cursor-pointer"
-                    onClick={() => setSelectedRow(row)}
-                  >
-                    {displayColumns.map((key) => {
-                      const isSemaforo =
-                        key.toLowerCase() === "semaforo" ||
-                        key.toLowerCase() === "status" ||
-                        key.toLowerCase() === "estado";
-                      const isPriority =
-                        key.toLowerCase().includes("criticid") ||
-                        key.toLowerCase().includes("prioridad");
-                      let val = row[key];
-                      if (key.toLowerCase().includes("fecha"))
-                        val = displayDate(val);
-                      val =
-                        val !== undefined && val !== null ? String(val) : "";
-                      return (
-                        <td
-                          key={`${i}-${key}`}
-                          className="px-10 py-8 max-w-[400px] truncate border-r border-slate-50 last:border-0"
-                        >
-                          {isSemaforo ? (
-                            <div
-                              className="inline-flex items-center px-4 py-2 rounded-2xl border"
-                              style={{
-                                backgroundColor: `${STATUS_COLORS[String(val).trim()] || "#64748b"}10`,
-                                color:
-                                  STATUS_COLORS[String(val).trim()] ||
-                                  "#475569",
-                                borderColor: `${STATUS_COLORS[String(val).trim()] || "#cbd5e1"}40`,
-                              }}
-                            >
-                              <div
-                                className="w-1.5 h-1.5 rounded-full mr-3 text-current flex items-center justify-center shrink-0"
-                              >
-                                {val.toLowerCase().includes('resuelto') ? <ShieldCheck size={12} /> : 
-                                 val.toLowerCase().includes('abierto') ? <Activity size={12} /> : 
-                                 <AlertCircle size={12} />}
-                              </div>
-                              <span className="text-[10px] font-black uppercase tracking-widest">{val}</span>
-                            </div>
-                          ) : isPriority ? (
-                            <div className="flex items-center gap-4">
-                               <div className="w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm shrink-0" 
-                                    style={{ backgroundColor: PRIORITIES_COLORS[String(val).toLowerCase().trim()] || '#cbd5e1' }} />
-                               <span className="text-[11px] font-black uppercase tracking-tighter text-slate-800">
-                                  {String(val)}
-                               </span>
-                            </div>
-                          ) : (
-                            <span className="text-xs font-bold text-slate-800 font-mono tracking-tight leading-none whitespace-nowrap">
-                              {val || "-"}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            )}
-          </div>
-          {filteredData.length > 0 && (
-          <div className="p-12 bg-slate-50/50 flex justify-between items-center">
-            <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">
-              {paginatedData.length}{" "}
-              <span className="text-slate-400">
-                / {filteredData.length} Entradas
-              </span>
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="h-12 px-6 border border-slate-200 bg-white rounded-2xl text-[10px] font-black uppercase tracking-widest disabled:opacity-20"
-              >
-                Anterior
-              </button>
-              <button
-                onClick={() =>
-                  setCurrentPage((p) => Math.min(totalPages, p + 1))
-                }
-                disabled={currentPage === totalPages}
-                className="h-12 px-6 border border-slate-200 bg-white rounded-2xl text-[10px] font-black uppercase tracking-widest disabled:opacity-20"
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-          )}
-        </CardContent>
-      </Card>
+        <EnterpriseTable 
+          data={filteredData}
+          columns={displayColumnsData}
+          onRowClick={(row) => setSelectedRow(row)}
+          hideHeader={true}
+          onExport={(data) => {
+            const appliedFilters = {
+              'Prestador/Socio': prestadorFilter === 'all' ? 'Todos' : prestadorFilter,
+              'Criticidad': priorityFilter === 'all' ? 'Todas' : priorityFilter,
+              'Responsable': responsableFilter === 'all' ? 'Todos' : responsableFilter,
+              'Estado': statusFilter === 'all' ? 'Todos' : statusFilter,
+              'SLA': slaFilter === 'all' ? 'Todos' : slaFilter
+            };
+            exportToStyledExcel(
+              data,
+              "Reporte_Mando_Y_Control_Filtrado.xlsx",
+              "Reporte Consolidado Ciberseguridad",
+              appliedFilters
+            );
+          }}
+        />
+      </div>
 
       <CyberVendorDetailModal 
         isOpen={!!selectedVendor}

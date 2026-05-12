@@ -37,15 +37,18 @@ import {
   ArrowDownRight,
   Radar,
   Network,
-  List
+  List,
+  FileSearch
 } from 'lucide-react';
 import { DetailsModal } from './DetailsModal';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
+import { EnterpriseTable } from './EnterpriseTable';
 
 interface Props {
   data: any[];
   title: string;
   isOverview?: boolean;
+  maxYear?: number;
 }
 
 const COLORS = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#0ea5e9', '#38bdf8', '#7dd3fc'];
@@ -99,7 +102,7 @@ const Sparkline = ({ data, color }: { data: any[], color: string }) => (
   </div>
 );
 
-export default function JiraView({ data, title, isOverview = false }: Props) {
+export default function JiraView({ data, title, isOverview = false, maxYear }: Props) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -112,11 +115,39 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
     if (!data) return [];
     
     return data.filter(row => {
+      // Very basic filtering to keep almost everything that isn't a known Excel noise row
       const values = Object.values(row).map(v => String(v).toLowerCase());
-      if (values.includes('varios elementos') || values.includes('todas')) return false;
       
-      const validKeys = Object.keys(row).filter(k => !k.startsWith('__EMPTY') && k.trim() !== '');
-      if (validKeys.length < 3) return false;
+      // Keep everything unless it's an obviously empty row or a header/summary with "(varios elementos)"
+      const isHeaderNoise = (values.includes('varios elementos') || values.includes('todas')) && Object.keys(row).length < 5;
+      if (isHeaderNoise) return false;
+
+      // EXPLICIT FILTER: Limit to entries <= maxYear if provided
+      if (maxYear) {
+        const dateKeys = Object.keys(row).filter(key => 
+          key.toLowerCase().includes('fecha') || 
+          key.toLowerCase().includes('date') || 
+          key.toLowerCase().includes('creado') ||
+          key.toLowerCase() === 'año' ||
+          key.toLowerCase() === 'year'
+        );
+
+        for (const key of dateKeys) {
+          const val = row[key];
+          if (!val) continue;
+
+          if (key.toLowerCase() === 'año' || key.toLowerCase() === 'year') {
+            if (parseInt(String(val)) > maxYear) return false;
+          }
+
+          const isoDate = getISOFromExcelDate(val);
+          if (isoDate) {
+            const year = parseInt(isoDate.split('-')[0]);
+            if (year > maxYear) return false;
+          }
+        }
+      }
+      
       return true;
     });
   }, [data]);
@@ -153,9 +184,11 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
     const sample = cleanData[0];
     const statusKey = findColumnKey(sample, ['semaforo', 'status', 'estado']);
     const priorityKey = findColumnKey(sample, ['criticidad', 'priority', 'prioridad']);
-    const assigneeKeys = ['responsable seguridad', 'responsable de seguridad', 'responsable', 'backup', 'assignee', 'asignado', 'colaborador'].map(kw => findColumnKey(sample, [kw])).filter(Boolean) as string[];
+    const assigneeKeysRaw = ['responsable seguridad', 'responsable de seguridad', 'responsable', 'backup', 'assignee', 'asignado', 'colaborador'].map(kw => findColumnKey(sample, [kw])).filter(Boolean) as string[];
+    const assigneeKeys = Array.from(new Set(assigneeKeysRaw));
     const providerKey = findColumnKey(sample, ['proveedor', 'vendor', 'empresa externa', 'partner', 'consultora']);
-    const dateKey = findColumnKey(sample, ['fecha inicio', 'mes inicio', 'creado en', 'fecha']);
+    const dateKey = findColumnKey(sample, ['fecha inicio', 'mes inicio', 'creado en', 'fecha', 'created', 'creación', 'creacion']);
+    const resolutionDateKey = findColumnKey(sample, ['fecha resolución', 'fecha resolucion', 'resolved', 'resolución', 'fecha fin', 'fin', 'completed date', 'resolved date']);
     const idKey = findColumnKey(sample, ['nro.', 'numero', 'id', 'ticket']);
     const commitmentDateKey = findColumnKey(sample, ['fecha de compromiso', 'commitment', 'compromiso', 'vencimiento']);
 
@@ -163,8 +196,6 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
       const matchesSearch = Object.values(row).some(val => 
         String(val).toLowerCase().includes(searchTerm.toLowerCase())
       );
-      const sVal = String(row[statusKey || ''] || '').toLowerCase();
-      const pVal = String(row[priorityKey || ''] || '').toLowerCase();
       const matchesStatus = statusFilter === 'all' || String(row[statusKey || '']) === statusFilter;
       const matchesPriority = priorityFilter === 'all' || String(row[priorityKey || '']) === priorityFilter;
       return matchesSearch && matchesStatus && matchesPriority;
@@ -176,7 +207,7 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
     let overdueCommitment = 0;
     const statusCount: Record<string, number> = {};
     const priorityCount: Record<string, number> = {};
-    const timelineCount: Record<string, number> = {};
+    const timelineCount: Record<string, { created: number, resolved: number }> = {};
     const providerStats: Record<string, { total: number, resolved: number, delayed: number, critical: number }> = {};
 
     filtered.forEach(row => {
@@ -185,6 +216,9 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
         'alta', 'critica', 'crítica', 'high', 'importante', 'urgente', '1', 'muy alta', 'very high', 'p1', 'p0', 'critical', 'critico', 'crítico'
       ].some(term => priority.includes(term)) && !priority.includes('no critico') && !priority.includes('no crítico');
 
+      const sVal = String(row[statusKey || ''] || '').toLowerCase();
+      const isResolved = sVal.includes('done') || sVal.includes('cerrado') || sVal.includes('resuelto') || sVal.includes('closed') || sVal.includes('completado');
+
       // Provider logic
       if (providerKey && row[providerKey]) {
         const prov = String(row[providerKey]).trim();
@@ -192,9 +226,7 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
           if (!providerStats[prov]) providerStats[prov] = { total: 0, resolved: 0, delayed: 0, critical: 0 };
           providerStats[prov].total++;
           
-          const status = String(row[statusKey || ''] || '').toLowerCase();
-          const isResolved = status.includes('done') || status.includes('cerrado') || status.includes('resuelto') || status.includes('closed') || status.includes('completado');
-          const isDelayed = status.includes('atrasado') || status.includes('atrasada');
+          const isDelayed = sVal.includes('atrasado') || sVal.includes('atrasada');
           
           if (isResolved) providerStats[prov].resolved++;
           if (isDelayed) providerStats[prov].delayed++;
@@ -204,8 +236,6 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
 
       if (statusKey && row[statusKey]) {
         const status = String(row[statusKey]).trim();
-        const isResolved = status.toLowerCase().includes('done') || status.toLowerCase().includes('cerrado') || status.toLowerCase().includes('resuelto') || status.toLowerCase().includes('closed') || status.toLowerCase().includes('completado');
-
         if (status && status !== "-") {
           statusCount[status] = (statusCount[status] || 0) + 1;
           if (!isResolved) activeTickets++;
@@ -231,17 +261,35 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
         }
       }
 
+      // Timeline logic (Creation)
       if (dateKey && row[dateKey]) {
         let dateStr = getISOFromExcelDate(row[dateKey]).substring(0, 7);
         if (dateStr.match(/^\d{4}-\d{2}/)) {
-           timelineCount[dateStr] = (timelineCount[dateStr] || 0) + 1;
+           if (!timelineCount[dateStr]) timelineCount[dateStr] = { created: 0, resolved: 0 };
+           timelineCount[dateStr].created++;
+        }
+      }
+
+      // Timeline logic (Resolution)
+      if (isResolved) {
+        let rDateVal = row[resolutionDateKey || ''] || row[dateKey || '']; // Fallback to creation date if resolution date is missing but it's resolved
+        if (rDateVal) {
+          let dateStr = getISOFromExcelDate(rDateVal).substring(0, 7);
+          if (dateStr.match(/^\d{4}-\d{2}/)) {
+             if (!timelineCount[dateStr]) timelineCount[dateStr] = { created: 0, resolved: 0 };
+             timelineCount[dateStr].resolved++;
+          }
         }
       }
     });
 
     const statusChartData = Object.entries(statusCount).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value);
     const priorityChartData = Object.entries(priorityCount).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value);
-    const timelineData = Object.entries(timelineCount).map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date));
+    const timelineData = Object.entries(timelineCount).map(([date, stats]) => ({ 
+      date, 
+      count: stats.created,
+      resolved: stats.resolved 
+    })).sort((a, b) => a.date.localeCompare(b.date));
 
     const providerChartData = Object.entries(providerStats).map(([name, stats]) => ({
       name,
@@ -372,13 +420,22 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
 
   const displayColumns = useMemo(() => {
     if (!cleanData || cleanData.length === 0) return [];
-    
-    return Object.keys(cleanData[0]).filter(k => {
-      if (k.startsWith('__EMPTY')) return false;
-      const lower = k.toLowerCase().trim();
-      return lower !== 'año' && lower !== 'mes' && lower !== 'semana' && lower !== 'día' && lower !== '(varios elementos)' && lower !== '(todas)';
-    });
+    return Array.from(new Set(Object.keys(cleanData[0])));
   }, [cleanData]);
+
+  const displayColumnsData = useMemo(() => {
+    return displayColumns.map(key => ({
+      key,
+      label: key,
+      sortable: true,
+      type: (key.toLowerCase() === 'semaforo' || key.toLowerCase() === 'status' || key.toLowerCase() === 'estado') ? 'badge' as const : 'text' as const,
+      render: (val: any) => {
+        let displayVal = val;
+        if (key.toLowerCase().includes('fecha')) displayVal = formatExcelDate(val);
+        return <span className={key.toLowerCase().includes('id') || key.toLowerCase().includes('key') ? 'font-mono' : ''}>{String(displayVal || '')}</span>;
+      }
+    }));
+  }, [displayColumns]);
 
   if (!cleanData || cleanData.length === 0) {
     return (
@@ -733,7 +790,7 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
                        </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-10 gap-y-6 w-full mt-10 px-8">
+                  <div className="grid grid-cols-2 gap-x-10 gap-y-6 w-full mt-10 px-10 pb-4">
                     {metrics.priorityChartData.map((entry, i) => (
                       <div key={i} className="flex flex-col gap-1.5 border-l-2 pl-4 transition-all hover:pl-6 bg-slate-50/50 p-2 rounded-r-lg" style={{ borderColor: PRIORITIES_COLORS[entry.name.toLowerCase()] || COLORS[i % COLORS.length] }}>
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">{entry.name}</span>
@@ -903,280 +960,396 @@ export default function JiraView({ data, title, isOverview = false }: Props) {
             </div>
           )}
 
-          {/* Productivity Timeline */}
-          <Card className="border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] overflow-hidden bg-white">
-            <CardHeader className="flex flex-row items-center justify-between p-8 border-b border-slate-50">
-              <div className="flex items-center gap-4">
-                 <div className="p-3 bg-indigo-50 rounded-2xl">
-                    <Clock className="text-indigo-600" size={20} />
-                 </div>
-                 <div>
-                    <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cronología de Productividad</CardTitle>
-                    <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Evolución del flujo operativo por periodo</p>
-                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                 <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="h-2 w-2 bg-indigo-600 rounded-full animate-pulse" />
-                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Input Stream</span>
-                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-8">
-              <div className="h-72 w-full">
+          {/* Historical Productivity Analysis Section */}
+          <div className="grid grid-cols-1 gap-6">
+            <Card className="border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] overflow-hidden bg-white group">
+              <CardHeader className="p-8 border-b border-slate-50 bg-white">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-5">
+                     <div className="p-4 bg-indigo-50 text-indigo-600 rounded-3xl group-hover:scale-110 transition-transform duration-500">
+                        <Clock size={24} />
+                     </div>
+                     <div>
+                        <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Cronología Operativa</CardTitle>
+                        <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Análisis de flujo operativo</p>
+                     </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-8 h-[400px] bg-[#fdfdff]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={metrics.timelineData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="colorMain" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01}/>
+                      <linearGradient id="colorCreated" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15}/>
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
                       </linearGradient>
-                      <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur stdDeviation="3" result="blur" />
-                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                      </filter>
+                      <linearGradient id="colorResolved" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="6 6" vertical={true} stroke="#f1f5f9" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis 
                       dataKey="date" 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{fontSize: 9, fontWeight: 900, fill: '#94a3b8', textTransform: 'uppercase'}} 
+                      tick={{fontSize: 10, fontWeight: 800, fill: '#64748b', textTransform: 'uppercase'}} 
                       dy={15}
                     />
                     <YAxis 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{fontSize: 9, fontWeight: 900, fill: '#94a3b8'}} 
+                      tick={{fontSize: 10, fontWeight: 800, fill: '#94a3b8'}} 
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '16px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.5)', padding: '16px' }}
-                      labelStyle={{ color: '#94a3b8', fontWeight: '900', fontSize: '9px', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.1em' }}
-                      itemStyle={{ color: '#fff', fontSize: '13px', fontWeight: '900' }}
+                      contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.1)', padding: '20px' }}
+                      labelStyle={{ color: '#0f172a', fontWeight: '900', fontSize: '11px', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.1em' }}
+                      cursor={{ stroke: '#f1f5f9', strokeWidth: 2 }}
+                    />
+                    <Legend 
+                      verticalAlign="top" 
+                      align="right" 
+                      height={36}
+                      content={({ payload }) => (
+                        <div className="flex gap-6 justify-end items-center -mt-4 mb-4">
+                          {payload?.map((entry: any, index: number) => (
+                            <div key={`item-${index}`} className="flex items-center gap-2">
+                              <div className="h-3 w-3 rounded-full shadow-sm" style={{ backgroundColor: entry.color }} />
+                              <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.1em]">{entry.value === 'count' ? 'Nuevas Entradas' : 'Entregas Consolidadas'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     />
                     <Area 
                       type="monotone" 
                       dataKey="count" 
-                      stroke="#4f46e5" 
+                      stroke="#6366f1" 
                       strokeWidth={4} 
                       fillOpacity={1} 
-                      fill="url(#colorMain)" 
-                      animationDuration={2500}
-                      filter="url(#glow)"
+                      fill="url(#colorCreated)" 
+                      animationDuration={2000}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="resolved" 
+                      stroke="#10b981" 
+                      strokeWidth={4} 
+                      fillOpacity={1} 
+                      fill="url(#colorResolved)" 
+                      animationDuration={2000}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
 
       {!isOverview && (
-        <Card className="flex-1 overflow-hidden">
-          <CardHeader className="border-b border-slate-100 bg-slate-50/50 p-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <CardTitle>Listado de Registros</CardTitle>
-              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                <div className="relative flex-grow sm:flex-grow-0 sm:min-w-[280px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    type="search"
-                    placeholder="Buscar en datos..."
-                    className="pl-9 bg-white border-slate-200 shadow-sm focus:ring-indigo-500 rounded-lg"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
+        <div className="space-y-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">
+             <div className="flex items-center gap-4">
+                <div className="p-3 bg-slate-900 text-white rounded-2xl shadow-lg shadow-slate-200"><List size={20} /></div>
+                <div>
+                   <h3 className="text-xl font-black text-slate-900 tracking-tight uppercase">Explorador de Portfolio</h3>
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Auditoría granular de iniciativas y estados</p>
                 </div>
-                {metrics.statusKey && (
-                  <div className="flex-1 min-w-[150px] max-w-[200px]">
-                    <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full bg-white border-slate-200 shadow-sm rounded-lg text-sm font-medium text-slate-600">
-                      <option value="all">Todos los Estados ({filterOptions.counts.totalMatches})</option>
-                      {filterOptions.statuses.map(status => (
-                        <option key={status} value={status}>{status} ({filterOptions.counts.statuses[status] || 0})</option>
-                      ))}
-                    </Select>
-                  </div>
-                )}
-                {metrics.priorityKey && (
-                  <div className="flex-1 min-w-[150px] max-w-[200px]">
-                    <Select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="w-full bg-white border-slate-200 shadow-sm rounded-lg text-sm font-medium text-slate-600">
-                      <option value="all">Todas las Criticidades ({filterOptions.counts.totalMatches})</option>
-                      {filterOptions.priorities.map(priority => (
-                        <option key={priority} value={priority}>{priority} ({filterOptions.counts.priorities[priority] || 0})</option>
-                      ))}
-                    </Select>
-                  </div>
-                )}
-                <Button onClick={() => setShowDetails(true)} className="h-10 px-4 bg-brand-600 border border-brand-700 text-white hover:bg-brand-700 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
-                   <List size={14} /> Ver Detalles
+             </div>
+             
+             <div className="flex flex-wrap items-center gap-3">
+                <div className="relative w-full sm:w-64">
+                   <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                   <Input 
+                     placeholder="Buscar en la grilla..." 
+                     className="pl-11 bg-white border-slate-200 rounded-xl h-11 text-xs"
+                     value={searchTerm}
+                     onChange={(e) => setSearchTerm(e.target.value)}
+                   />
+                </div>
+                <Select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full sm:w-48 h-11 rounded-xl bg-white border-slate-200 text-xs font-bold"
+                >
+                  <option value="all">Todos los Estados</option>
+                  {filterOptions.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </Select>
+                <Select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="w-full sm:w-48 h-11 rounded-xl bg-white border-slate-200 text-xs font-bold"
+                >
+                  <option value="all">Todas las Criticidades</option>
+                  {filterOptions.priorities.map(p => <option key={p} value={p}>{p}</option>)}
+                </Select>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="rounded-xl h-11 border-slate-200 text-slate-600 px-5 flex items-center gap-2 hover:bg-slate-50 transition-colors"
+                  onClick={() => {
+                    const appliedFilters = {
+                      'Estado': statusFilter === 'all' ? 'Todos los Estados' : statusFilter,
+                      'Criticidad/Prioridad': priorityFilter === 'all' ? 'Todas las Criticidades' : priorityFilter
+                    };
+                    exportToStyledExcel(allFilteredData, `Reporte_Portfolio_Proyectos_Filtrado.xlsx`, title || 'Reporte de Proyectos', appliedFilters);
+                  }}
+                >
+                   <Download size={16} />
+                   <span className="text-[10px] font-black uppercase tracking-widest">Exportar</span>
                 </Button>
-                <Button onClick={() => {
-                   const appliedFilters = {
-                     'Estado': statusFilter === 'all' ? 'Todos los Estados' : statusFilter,
-                     'Criticidad/Prioridad': priorityFilter === 'all' ? 'Todas las Criticidades' : priorityFilter
-                   };
-                   exportToStyledExcel(allFilteredData, `Reporte_Portfolio_Proyectos_Filtrado.xlsx`, title || 'Reporte de Proyectos', appliedFilters);
-                }} className="h-10 px-4 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
-                   <Download size={14} /> Exportar
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
+             </div>
+          </div>
 
-          <DetailsModal 
-             isOpen={showDetails} 
-             onClose={() => setShowDetails(false)} 
-             data={allFilteredData} 
-             title={`Detalles: ${title || 'Proyectos'}`} 
-             filename="Reporte_Portfolio_Full.xlsx" 
-             appliedFilters={{
-               'Estado': statusFilter === 'all' ? 'Todos los Estados' : statusFilter,
-               'Criticidad/Prioridad': priorityFilter === 'all' ? 'Todas las Criticidades' : priorityFilter
-             }}
+          <EnterpriseTable 
+            data={allFilteredData}
+            columns={displayColumnsData}
+            onRowClick={(row) => setSelectedRow(row)}
+            hideHeader={true}
           />
-
-          <CardContent className="p-0">
-            <div className="overflow-x-auto hide-scrollbar">
-              <table className="w-full text-sm text-left border-collapse">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    {displayColumns.map(key => (
-                      <th key={key} scope="col" className="px-6 py-4 font-black text-[10px] uppercase tracking-[0.15em] text-slate-500 whitespace-nowrap">
-                        {key}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paginatedData.map((row, i) => (
-                    <tr 
-                      key={i} 
-                      className="bg-white hover:bg-brand-50/30 transition-all cursor-pointer group"
-                      onClick={() => setSelectedRow(row)}
-                    >
-                      {displayColumns.map(key => {
-                        const isSemaforo = key.toLowerCase() === 'semaforo' || key.toLowerCase() === 'status' || key.toLowerCase() === 'estado';
-                        let val = row[key];
-                        if (key.toLowerCase().includes('fecha')) val = formatExcelDate(val);
-                        val = val !== undefined && val !== null ? String(val) : '';
-                        
-                        return (
-                          <td key={`${i}-${key}`} className="px-6 py-4 max-w-[400px] truncate group-hover:text-slate-900 transition-colors">
-                            {isSemaforo ? (
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest leading-none" style={{ 
-                                backgroundColor: `${STATUS_COLORS[String(val)] || '#64748b'}15`, 
-                                color: STATUS_COLORS[String(val)] || '#475569',
-                                border: `1px solid ${STATUS_COLORS[String(val)] || '#cbd5e1'}40`
-                              }}>
-                                <div className="w-1 h-1 rounded-full mr-2" style={{ backgroundColor: STATUS_COLORS[String(val)] || '#64748b' }}></div>
-                                {String(val)}
-                              </span>
-                            ) : (
-                              <span className={`text-[11px] font-medium text-slate-600 ${key.toLowerCase().includes('id') || key.toLowerCase().includes('key') ? 'font-mono' : ''}`}>
-                                {String(val)}
-                              </span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                  {paginatedData.length === 0 && (
-                    <tr>
-                      <td colSpan={displayColumns.length} className="px-6 py-24 text-center">
-                        <div className="flex flex-col items-center justify-center space-y-4 max-w-xs mx-auto">
-                          <div className="p-4 bg-slate-100 rounded-full text-slate-400">
-                             <Search className="h-8 w-8" />
-                          </div>
-                          <p className="text-sm font-bold text-slate-900 uppercase tracking-widest">Sin Coincidencias</p>
-                          <p className="text-xs text-slate-500 text-justify-custom leading-relaxed">No se encontraron registros que cumplan con los criterios de filtrado seleccionados actualmente.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-              <div className="flex flex-col">
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-loose">
-                  Mostrando {paginatedData.length} de {allFilteredData.length} registros
-                </p>
-                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">Página {currentPage} de {totalPages || 1}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="px-4 py-2 border border-slate-200 bg-white rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 disabled:opacity-20 transition-all"
-                >
-                  Anterior
-                </button>
-                <div className="flex items-center gap-1">
-                   {Array.from({ length: Math.min(5, totalPages) }, (_, i) => (
-                     <button 
-                       key={i+1}
-                       onClick={() => setCurrentPage(i+1)}
-                       className={`h-9 w-9 rounded-xl flex items-center justify-center text-[10px] font-black border transition-all ${currentPage === i+1 ? 'bg-slate-900 border-slate-900 text-white shadow-xl' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'}`}
-                     >
-                       {i+1}
-                     </button>
-                   ))}
-                </div>
-                <button 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages || totalPages === 0}
-                  className="px-4 py-2 border border-slate-200 bg-white rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 disabled:opacity-20 transition-all"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        </div>
       )}
 
-      {/* Row Detail Modal */}
-      <Modal 
-        isOpen={!!selectedRow} 
-        onClose={() => setSelectedRow(null)} 
-        title={selectedRow ? `Detalle de Proyecto/Tarea ${metrics.idKey && selectedRow[metrics.idKey] ? `(${selectedRow[metrics.idKey]})` : ''}` : 'Detalle'}
-      >
+
+      {/* Advanced Project Insight - Centered Floating Engine */}
+      <AnimatePresence>
         {selectedRow && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-            {Object.keys(selectedRow).filter(k => {
-              if (k.startsWith('__EMPTY')) return false;
-              const lower = k.toLowerCase().trim();
-              return lower !== 'año' && lower !== 'mes' && lower !== 'semana' && lower !== 'día' && lower !== '(varios elementos)' && lower !== '(todas)';
-            }).map((key) => {
-              let val = selectedRow[key];
-              if (val === undefined || val === null || String(val).trim() === '') return null;
-              if (key.toLowerCase().includes('fecha') || key.toLowerCase().includes('creado')) val = formatExcelDate(val);
-              
-              const isLongText = String(val).length > 60;
-              const isSemaforo = key.toLowerCase() === 'semaforo' || key.toLowerCase() === 'status' || key.toLowerCase() === 'estado';
-              
-              return (
-                <div key={key} className={`flex flex-col ${isLongText ? 'col-span-1 md:col-span-2' : ''} bg-white p-4 rounded-lg border border-slate-100 shadow-sm`}>
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">{key}</span>
-                  {isSemaforo ? (
-                     <span className="inline-flex w-fit items-center px-3 py-1 rounded-md text-sm font-medium" style={{ 
-                        backgroundColor: `${STATUS_COLORS[String(val)] || '#64748b'}15`, 
-                        color: STATUS_COLORS[String(val)] || '#475569',
-                        border: `1px solid ${STATUS_COLORS[String(val)] || '#cbd5e1'}40`
-                      }}>
-                         <div className="w-1.5 h-1.5 rounded-full mr-2" style={{ backgroundColor: STATUS_COLORS[String(val)] || '#64748b' }}></div>
-                        {String(val)}
-                      </span>
-                  ) : (
-                    <span className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{String(val)}</span>
-                  )}
+          <>
+            {/* High-Performance Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedRow(null)}
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] transition-all cursor-cross"
+            />
+            
+            {/* Centered Modal Content */}
+            <div className="fixed inset-0 flex items-center justify-center p-4 md:p-8 z-[101] pointer-events-none">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+                className="w-full max-w-4xl max-h-[90vh] bg-white rounded-[3rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.3)] flex flex-col overflow-hidden border border-slate-100 pointer-events-auto"
+              >
+                {/* Visual Identity Header */}
+                <div className="relative h-64 bg-slate-900 flex-shrink-0 overflow-hidden">
+                  <div className="absolute inset-0">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(99,102,241,0.25),transparent)]" />
+                    <motion.div 
+                      animate={{ 
+                        scale: [1, 1.1, 1], 
+                        opacity: [0.3, 0.4, 0.3],
+                        x: [0, 20, 0] 
+                      }}
+                      transition={{ duration: 15, repeat: Infinity }}
+                      className="absolute -top-20 -left-20 w-96 h-96 bg-indigo-600/20 rounded-full blur-[100px]" 
+                    />
+                    <motion.div 
+                      animate={{ 
+                        scale: [1, 1.2, 1], 
+                        opacity: [0.2, 0.3, 0.2],
+                        x: [0, -30, 0] 
+                      }}
+                      transition={{ duration: 12, repeat: Infinity, delay: 1 }}
+                      className="absolute -bottom-20 -right-20 w-80 h-80 bg-brand-600/20 rounded-full blur-[80px]" 
+                    />
+                    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
+                  </div>
+                  
+                  <div className="absolute top-10 left-10 right-10 flex justify-between items-start">
+                     <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                           <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
+                              <span className="text-[9px] font-black text-white uppercase tracking-[0.3em]">
+                                 {metrics.idKey ? String(selectedRow[metrics.idKey] || 'TICKET-ID') : 'INICIATIVA ESTRATÉGICA'}
+                              </span>
+                           </div>
+                           <div className="px-3 py-1 bg-indigo-500/20 backdrop-blur-md rounded-full border border-indigo-500/30">
+                              <span className="text-[9px] font-black text-indigo-200 uppercase tracking-[0.3em]">
+                                Registro Verificado
+                              </span>
+                           </div>
+                        </div>
+                     </div>
+                     <button 
+                       onClick={() => setSelectedRow(null)}
+                       className="h-12 w-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all active:scale-95 group"
+                     >
+                       <Zap size={20} className="group-hover:rotate-12 transition-transform" />
+                     </button>
+                  </div>
+
+                  <div className="absolute bottom-10 left-10 right-10">
+                    <h3 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-tight line-clamp-2 uppercase">
+                      {findColumnKey(selectedRow, ['proyecto o tarea', 'summary', 'descripción', 'asunto']) ? 
+                        String(selectedRow[findColumnKey(selectedRow, ['proyecto o tarea', 'summary', 'descripción', 'asunto'])!] || 'Tarea sin nombre') : 
+                        'Sin Descripción Operativa'}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-6 mt-6">
+                       <div className="flex items-center gap-3">
+                          <div className={`h-2.5 w-2.5 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.6)] ${
+                            String(selectedRow[metrics.statusKey || '']).toLowerCase().match(/done|resuelto/) ? 'bg-emerald-400' : 'bg-amber-400 shadow-amber-400/50'
+                          }`} />
+                          <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">
+                             {metrics.statusKey ? String(selectedRow[metrics.statusKey] || 'N/A') : 'Estado N/A'}
+                          </span>
+                       </div>
+                       <div className="h-4 w-px bg-white/10 hidden sm:block" />
+                       <div className="flex items-center gap-2">
+                          <ShieldAlert size={14} className="text-brand-400" />
+                          <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">
+                             Prioridad {metrics.priorityKey ? String(selectedRow[metrics.priorityKey] || 'Media') : 'Estándar'}
+                          </span>
+                       </div>
+                       <div className="h-4 w-px bg-white/10 hidden sm:block" />
+                       <div className="flex items-center gap-2">
+                          <Network size={14} className="text-indigo-400" />
+                          <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">
+                             {metrics.providerChartData.length > 0 ? 'Multivendedor' : 'Nodo Interno'}
+                          </span>
+                       </div>
+                    </div>
+                  </div>
                 </div>
-              )
-            })}
-          </div>
+
+                {/* Main Insight Scroll Engine */}
+                <div className="flex-1 overflow-y-auto p-10 space-y-12 bg-[#fafaff] scrollbar-hide">
+                  
+                  {/* Executive Intelligence Grid */}
+                  <section>
+                     <div className="flex items-center gap-4 mb-8">
+                        <div className="h-1 w-10 bg-indigo-500 rounded-full" />
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Métricas de Impacto</h4>
+                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {[
+                          { label: 'Índice de Salud', val: String(selectedRow[metrics.statusKey || '']).toLowerCase().match(/done|resuelto/) ? '100%' : '32%', desc: 'Progreso real', color: 'emerald', icon: Activity },
+                          { label: 'Prioridad Estratégica', val: String(selectedRow[metrics.priorityKey || '']).toUpperCase() || 'NORMAL', desc: 'Escalafón técnico', color: 'indigo', icon: Target }
+                        ].map((stat, i) => (
+                          <motion.div 
+                            key={i} 
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: i * 0.1 }}
+                            className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-5 group hover:shadow-xl transition-all"
+                          >
+                             <div className={`p-4 rounded-2xl bg-${stat.color}-50 text-${stat.color}-600 group-hover:scale-110 transition-transform`}>
+                                <stat.icon size={20} />
+                             </div>
+                             <div>
+                                <span className="text-[18px] font-black text-slate-800 leading-none block mb-1">{stat.val}</span>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{stat.label}</span>
+                             </div>
+                          </motion.div>
+                        ))}
+                     </div>
+                  </section>
+
+                  {/* Data Clusters */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                  {[
+                    {
+                      title: 'Línea de Tiempo',
+                      icon: Clock,
+                      color: 'indigo',
+                      fields: Array.from(new Set(Object.keys(selectedRow).filter(k => k.toLowerCase().includes('fecha') || k.toLowerCase().includes('date') || k.toLowerCase().includes('creado'))))
+                    },
+                    {
+                      title: 'Propiedad & Gobierno',
+                      icon: Target,
+                      color: 'emerald',
+                      fields: Array.from(new Set(metrics.assigneeKeys.concat(findColumnKey(selectedRow, ['proveedor', 'vendor']) || []).filter(Boolean)))
+                    }
+                  ].map((block, idx) => {
+                    const items = (block.fields as string[]).filter(f => selectedRow[f] && String(selectedRow[f]).trim() !== '-' && !f.startsWith('__EMPTY'));
+                    if (items.length === 0) return null;
+
+                    return (
+                      <motion.section 
+                        key={idx}
+                        className="space-y-6"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-xl bg-${block.color}-50 text-${block.color}-600`}>
+                             <block.icon size={16} />
+                          </div>
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{block.title}</h4>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          {items.map(field => (
+                            <div key={field} className="flex flex-col bg-white p-5 rounded-2xl border border-slate-100 hover:border-indigo-100/50 shadow-sm transition-all group/item">
+                               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 group-hover/item:text-indigo-500 transition-colors">{field}</span>
+                               <div className="text-[14px] font-bold text-slate-800">
+                                  {field.toLowerCase().includes('fecha') ? formatExcelDate(selectedRow[field]) : String(selectedRow[field])}
+                               </div>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.section>
+                    );
+                  })}
+                  </div>
+
+                  {/* Technical Deep Dive - Full Width */}
+                  <section>
+                    <div className="flex items-center gap-3 mb-8">
+                       <div className="p-2 rounded-xl bg-slate-900 text-white">
+                          <Cpu size={16} />
+                       </div>
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Capa Técnica & Atributos</h4>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                       {Array.from(new Set(Object.keys(selectedRow).filter(k => 
+                          !k.toLowerCase().includes('fecha') && 
+                          !metrics.assigneeKeys.includes(k) && 
+                          !k.toLowerCase().includes('asunto') && 
+                          !k.toLowerCase().includes('summary') && 
+                          !k.toLowerCase().includes('descrip') &&
+                          !k.startsWith('__EMPTY')
+                       ))).map(field => {
+                          const val = selectedRow[field];
+                          if (!val || String(val).trim() === '-' || String(val).trim() === '') return null;
+                          return (
+                            <div key={field} className="p-5 bg-white rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">{field}</span>
+                               <span className="text-[12px] font-bold text-slate-700 leading-relaxed font-mono">{String(val)}</span>
+                            </div>
+                          );
+                       })}
+                    </div>
+                  </section>
+                </div>
+
+                {/* Modal Global Footer */}
+                <div className="p-10 bg-white border-t border-slate-100 flex items-center justify-between bg-gradient-to-l from-white to-slate-50">
+                   <div className="flex items-center gap-10">
+                      <div className="flex items-center gap-3">
+                         <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center p-2 text-slate-400">
+                            <FileSearch size={20} />
+                         </div>
+                         <div>
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block leading-none mb-1">Capa de Datos</span>
+                            <span className="text-[11px] font-black text-slate-800 uppercase tracking-tight">Registro Consolidado</span>
+                         </div>
+                      </div>
+                   </div>
+                   <button 
+                     onClick={() => setSelectedRow(null)}
+                     className="px-12 py-5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black hover:shadow-2xl transition-all active:scale-95 flex items-center gap-3 group"
+                   >
+                      <List size={16} className="group-hover:-translate-x-1 transition-transform" />
+                      Cerrar Insight
+                   </button>
+                </div>
+              </motion.div>
+            </div>
+          </>
         )}
-      </Modal>
+      </AnimatePresence>
+
         </>
       )}
     </div>

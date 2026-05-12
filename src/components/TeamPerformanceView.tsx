@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { 
-  TrendingUp, Activity, Download, List, Flame, Target, CheckCircle2, Clock, Timer, AlertCircle, Trophy, Medal, Award, Rocket, ShieldAlert, BrainCircuit, XCircle, Users, Zap, Hourglass, Scale, GitCompare, BarChart3, Presentation, ArrowRight
+  TrendingUp, Activity, Download, List, Flame, Target, CheckCircle2, Clock, Timer, AlertCircle, Trophy, Medal, Award, Rocket, ShieldAlert, BrainCircuit, XCircle, Users, Zap, Hourglass, Scale, GitCompare, BarChart3, Presentation, ArrowRight, User, FileText
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { exportToStyledExcel } from '../lib/utils';
+import { exportToStyledExcel, exportMultiSheetExcel, exportStructuredPdf } from '../lib/utils';
 import { DetailsModal } from './DetailsModal';
 import { Card, CardHeader, CardContent } from './ui';
 import { isCriticalPriority } from './CyberView';
@@ -16,7 +16,7 @@ import { TeamHallOfFame } from './TeamHallOfFame';
 import { IndividualDeepDiveModal } from './IndividualDeepDiveModal';
 import { AnalyticalBreakdownPanel, MetricType } from './AnalyticalBreakdownPanel';
 import { VSPerformanceAnalytics } from './VSPerformanceAnalytics';
-import { TeamIntelligenceInsights } from './TeamIntelligenceInsights';
+import { TeamOperationalAnalytics } from './TeamOperationalAnalytics';
 
 interface Props {
   data: any[];
@@ -33,8 +33,8 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [currentTab, setCurrentTab] = useState<TabType>('performance');
   
-  // Explainability Panel State
   const [activeMetric, setActiveMetric] = useState<MetricType | null>(null);
+  const [isExporting, setIsExporting] = useState<string | null>(null);
 
   const { cleanData, keysInfo } = useMemo(() => {
     if (!data || data.length === 0) return { cleanData: [], keysInfo: null };
@@ -134,6 +134,13 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
     const avgTasksValue = total / activeTeamSize;
     const avgOpenTasks = (total - resolved) / activeTeamSize;
 
+    // Load Balance Calculation: Higher score = more even distribution
+    const tasksPerAssignee = Object.values(collaborators).map(c => c.total);
+    const mean = total / activeTeamSize;
+    const variance = tasksPerAssignee.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / activeTeamSize;
+    const stdDev = Math.sqrt(variance);
+    const loadBalance = Math.max(0, Math.min(100, Math.round((1 - (stdDev / (mean || 1))) * 100)));
+
     const collabList = Object.values(collaborators).map(c => {
       const compl = c.resolved > 0 ? ((c.onTime / c.resolved) * 100) : (c.total > 0 && c.late === 0 ? 100 : 0);
       
@@ -186,7 +193,8 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
     const radarData = [
       { subject: 'SLA Speed', A: timeCompliance, fullMark: 100 },
       { subject: 'Resolution', A: resolutionRate, fullMark: 100 },
-      { subject: 'Load Balance', A: Math.max(0, 100 - Math.abs(100 - (total / (activeTeamSize * 15)) * 100)), fullMark: 100 },
+      { subject: 'Efficiency', A: avgEfficiency, fullMark: 100 },
+      { subject: 'Load Balance', A: loadBalance, fullMark: 100 },
       { subject: 'Agility', A: Math.max(0, 100 - Math.round((late / (total || 1)) * 100)), fullMark: 100 },
       { subject: 'Complexity', A: Math.min(100, Math.round((criticalCount / (total || 1)) * 500)), fullMark: 100 },
     ];
@@ -210,36 +218,151 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
     };
   }, [filteredData, keysInfo]);
 
+  const handleExport = async () => {
+    if (!filteredData.length || !metrics) return;
+    
+    const filters = {
+      Periodo: "Actual",
+      Miembros: metrics.teamSize.toString()
+    };
+
+    const sheets = [];
+
+    // Sheet 1: Squad DNA (High level KPIs)
+    const kpiData = metrics.radarData.map((r: any) => ({
+      Métrica: r.subject,
+      Valor: `${r.A}%`,
+      Estado: r.A > 85 ? 'Óptimo' : r.A > 70 ? 'Estable' : 'Bajo Observación'
+    }));
+    
+    sheets.push({
+      name: 'ADN Operativo Squad',
+      data: kpiData,
+      title: `KPIs Estratégicos del Squad - ${title}`,
+      appliedFilters: filters
+    });
+
+    // Sheet 2: Member Ranking
+    const rankingData = metrics.collabList.map((c: any) => ({
+      Nombre: c.name,
+      'Efficiency Score': Math.round(c.efficiencyScore),
+      'Total Tickets': c.total,
+      'Resueltos': c.resolved,
+      'Compliance SLA %': `${Math.round(c.compliance)}%`,
+      'MTTR (Horas)': c.rawMttr.toFixed(2),
+      'Estado': c.estado
+    })).sort((a: any, b: any) => b['Efficiency Score'] - a['Efficiency Score']);
+
+    sheets.push({
+      name: 'Ranking de Eficiencia',
+      data: rankingData,
+      title: 'Auditoría Individual de Miembros'
+    });
+
+    // Sheet 3: Raw Data
+    sheets.push({
+      name: 'Data Operativa',
+      data: filteredData,
+      title: 'Detalle Completo de Tickets'
+    });
+    
+    await exportMultiSheetExcel(
+      sheets,
+      `Reporte_Audit_Squad_${new Date().toISOString().split('T')[0]}`
+    );
+  };
+
+  const handlePdfExport = async () => {
+    if (!filteredData.length || !metrics) return;
+    setIsExporting('pdf');
+    try {
+      const filters = {
+        Periodo: "Actual",
+        Miembros: metrics.teamSize.toString(),
+        Filtro_Prioridad: priorityFilter,
+        Filtro_Asignado: assigneeFilter
+      };
+
+      const sheets = [];
+
+      // Sheet 1: ADN (KPIs)
+      sheets.push({
+        name: 'KPIs Estratégicos',
+        data: metrics.radarData.map((r: any) => ({
+          Métrica: r.subject,
+          Valor: `${r.A}%`,
+          Referencia: '100%'
+        })),
+        title: `KPIs ESTRATÉGICOS: ${title}`,
+        appliedFilters: filters
+      });
+
+      // Sheet 2: Rankings
+      sheets.push({
+        name: 'Ranking de Eficiencia',
+        data: metrics.collabList.map((c: any) => ({
+          Nombre: c.name,
+          Efficiency: c.efficiencyScore,
+          Total: c.total,
+          Resueltos: c.resolved,
+          Compliance: `${c.compliance}%`,
+          MTTR: c.mttrDisplay,
+          Estado: c.estado
+        })),
+        title: 'RANKING OPERATIVO DE MIEMBROS'
+      });
+
+      await exportStructuredPdf(
+        sheets,
+        `Resumen_Auditoria_${title.replace(/\s+/g, '_')}`
+      );
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
   if (!metrics) return null;
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-1000 font-sans pb-20">
+    <div id="full-audit-board" className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-1000 font-sans pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="space-y-4 max-w-4xl">
           <div className="flex items-center gap-3">
-             <div className="h-2 w-2 rounded-full bg-brand-500 animate-pulse shadow-[0_0_12px_rgba(99,102,241,0.8)]" />
-             <span className="text-[11px] font-black text-brand-500 uppercase tracking-[0.4em]">Analytics & Behavioral Intelligence</span>
+             <div className="h-2 w-2 rounded-full bg-slate-900 animate-pulse shadow-[0_0_12px_rgba(15,23,42,0.5)]" />
+             <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em]">Auditoría Operativa & Análisis Estratégico</span>
           </div>
-          <h2 className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight leading-[0.8]">{title}<span className="text-brand-600">.</span></h2>
+          <h2 className="text-5xl md:text-7xl font-black text-slate-950 tracking-tight leading-[0.8]">{title}<span className="text-brand-600">.</span></h2>
           <p className="text-lg font-bold text-slate-500 max-w-2xl leading-relaxed">{subtitle}</p>
         </div>
         
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3 export-exclude">
            <button 
-              onClick={() => exportToStyledExcel(filteredData, 'Performance_Operativa.xlsx', title)}
-              className="flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-[2rem] text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95"
+              onClick={handleExport}
+              className="flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-[2rem] text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95 border border-slate-800"
            >
-              <Download size={14} /> Exportar Matrix
+              <Download size={14} /> Matrix Excel
+           </button>
+           <button 
+              onClick={handlePdfExport}
+              disabled={!!isExporting}
+              className={`flex items-center gap-3 px-8 py-4 bg-white text-slate-900 rounded-[2rem] text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-xl border border-slate-200 active:scale-95 ${isExporting ? 'opacity-50' : ''}`}
+           >
+              {isExporting === 'pdf' ? (
+                <div className="h-4 w-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <FileText size={14} />
+              )}
+              {isExporting === 'pdf' ? 'Generando PDF...' : 'Reporte Resumen PDF'}
            </button>
         </div>
       </div>
 
       {/* Advanced Navigation Tabs */}
-      <div className="flex items-center gap-2 p-2 bg-slate-100 rounded-[2.5rem] w-fit shadow-inner border border-slate-200/50">
+      <div className="flex items-center gap-2 p-2 bg-slate-100 rounded-[2.5rem] w-fit shadow-inner border border-slate-200/50 export-exclude">
         {[
           { id: 'performance', icon: <Activity size={16} />, label: 'Resumen Operativo' },
           { id: 'vs_analytics', icon: <GitCompare size={16} />, label: 'VS Analytics' },
-          { id: 'intelligence', icon: <BrainCircuit size={16} />, label: 'Team AI Intel' },
+          { id: 'intelligence', icon: <Presentation size={16} />, label: 'Estrategia Operativa' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -267,8 +390,13 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
           <TeamHallOfFame performers={metrics.topThree} onSelect={setSelectedMember} />
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-             <div className="lg:col-span-4">
-                <PerformanceRadar data={metrics.radarData} />
+             <div className="lg:col-span-4 space-y-6">
+                <PerformanceRadar 
+                  data={metrics.radarData} 
+                  dataKeyA="A"
+                  nameA="Squad"
+                  title="ADN Operativo del Squad"
+                />
              </div>
 
              <div className="lg:col-span-8">
@@ -411,11 +539,11 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
       )}
 
       {currentTab === 'vs_analytics' && (
-        <VSPerformanceAnalytics metrics={metrics} allData={filteredData} />
+        <VSPerformanceAnalytics metrics={metrics} allData={filteredData} keysInfo={keysInfo} />
       )}
 
       {currentTab === 'intelligence' && (
-        <TeamIntelligenceInsights metrics={metrics} />
+        <TeamOperationalAnalytics metrics={metrics} />
       )}
 
       <AnalyticalBreakdownPanel 

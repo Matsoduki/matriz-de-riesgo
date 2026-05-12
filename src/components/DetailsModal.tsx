@@ -3,6 +3,8 @@ import { X, Download, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { exportToStyledExcel } from '../lib/utils';
 import { Input, Button } from './ui';
 import { formatExcelDate } from '../lib/excelParser';
+import { CyberRowDetailModal } from './CyberRowDetailModal';
+import { isCriticalPriority } from './CyberView';
 
 interface DetailsModalProps {
   isOpen: boolean;
@@ -18,6 +20,7 @@ export function DetailsModal({ isOpen, onClose, title, data, filename = "Detalle
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedRow, setSelectedRow] = useState<any | null>(null);
   const pageSize = 50;
 
   // Simple debounce
@@ -45,7 +48,7 @@ export function DetailsModal({ isOpen, onClose, title, data, filename = "Detalle
 
   const columns = useMemo(() => {
     if (displayData.length === 0) return [];
-    return Object.keys(displayData[0]).filter(k => !k.startsWith('__EMPTY'));
+    return Array.from(new Set(Object.keys(displayData[0]).filter(k => !k.startsWith('__EMPTY'))));
   }, [displayData]);
 
   if (!isOpen) return null;
@@ -121,9 +124,13 @@ export function DetailsModal({ isOpen, onClose, title, data, filename = "Detalle
                      ))}
                    </tr>
                  </thead>
-                 <tbody className="divide-y divide-slate-100 bg-white">
+                  <tbody className="divide-y divide-slate-100 bg-white">
                   {paginatedData.map((row, i) => (
-                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                    <tr 
+                      key={i} 
+                      onClick={() => setSelectedRow(row)}
+                      className="hover:bg-slate-50 transition-colors cursor-pointer group"
+                    >
                       {columns.map(col => {
                          let val = row[col];
                          const colLower = col.toLowerCase();
@@ -131,7 +138,7 @@ export function DetailsModal({ isOpen, onClose, title, data, filename = "Detalle
                            val = formatExcelDate(val);
                          }
                          return (
-                           <td key={col} className="px-4 py-3 text-sm font-medium text-slate-700 max-w-xs truncate" title={val !== null && val !== undefined ? String(val) : ''}>
+                           <td key={col} className="px-4 py-3 text-sm font-medium text-slate-700 max-w-xs truncate group-hover:text-brand-600" title={val !== null && val !== undefined ? String(val) : ''}>
                             {val !== null && val !== undefined ? String(val) : '-'}
                            </td>
                          );
@@ -166,6 +173,15 @@ export function DetailsModal({ isOpen, onClose, title, data, filename = "Detalle
           </div>
         )}
       </div>
+
+      <CyberRowDetailModal
+        isOpen={!!selectedRow}
+        onClose={() => setSelectedRow(null)}
+        row={selectedRow}
+        metrics={{ priorityKey: 'Criticidad', statusKey: 'SEMAFORO' }}
+        isCriticalPriority={isCriticalPriority}
+        displayDate={(d) => d || 'S/D'}
+      />
     </div>
   </div>
 );

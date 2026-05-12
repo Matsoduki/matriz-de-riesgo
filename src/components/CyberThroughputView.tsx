@@ -44,17 +44,18 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
   const stats = useMemo(() => {
     if (!data.length) return null;
 
-    // Robust Monday-start logic
-    const getMondayOfCurrentWeek = () => {
+    // Friday-based Weekly Cutoff logic (Week starts Saturday, ends Friday)
+    const getFridayCutoffStart = () => {
       const today = new Date();
-      const day = today.getDay();
-      const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-      const monday = new Date(today.getFullYear(), today.getMonth(), diff);
-      monday.setHours(0, 0, 0, 0);
-      return monday;
+      const day = today.getDay(); // 0:Sun, 1:Mon, ..., 5:Fri, 6:Sat
+      // Days since last Saturday: Sat=0, Sun=1, Mon=2, Tue=3, Wed=4, Thu=5, Fri=6
+      const daysSinceSaturday = (day + 1) % 7;
+      const saturday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceSaturday);
+      saturday.setHours(0, 0, 0, 0);
+      return saturday;
     };
 
-    const currentMonday = getMondayOfCurrentWeek();
+    const currentWeekStart = getFridayCutoffStart();
 
     // 1. Grouped historic data for charts
     const grouped = data.reduce((acc: any, row) => {
@@ -96,7 +97,7 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
         backlogDelta: item.created - item.resolved
       }));
     
-    // 2. Real-time "Since Monday" metrics
+    // 2. Real-time metrics based on Cutoff
     let thisWeekCreated = 0;
     let thisWeekResolved = 0;
 
@@ -107,7 +108,7 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
       if (!iso) return;
       const date = new Date(iso);
       
-      if (date >= currentMonday) {
+      if (date >= currentWeekStart) {
         thisWeekCreated++;
         if (isResolvedStatus(row[statusKey])) {
           thisWeekResolved++;
@@ -137,7 +138,7 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
       previous: previousPeriodData,
       createdDelta,
       resolvedDelta,
-      lastUpdate: currentMonday.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+      lastUpdate: currentWeekStart.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
     };
   }, [data, timeframe, dateKey, statusKey]);
 
@@ -152,7 +153,7 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
           <CardContent className="p-8">
             <div className="flex items-center justify-between mb-4">
               <div className="flex flex-col">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300">Nuevos Gaps</span>
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300">Nuevos Registros</span>
                 <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">Desde {stats.lastUpdate}</span>
               </div>
               <Calendar size={18} className="text-indigo-400" />

@@ -4,48 +4,73 @@ import { X } from "lucide-react";
 
 export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("rounded-xl border border-slate-200 bg-white text-slate-950 shadow-sm transition-all hover:shadow-md", className)} {...props} />
+    <div ref={ref} className={cn("rounded-2xl border border-slate-200/60 bg-white text-slate-950 shadow-sm transition-all duration-300 hover:shadow-xl hover:shadow-slate-200/50", className)} {...props} />
   )
 )
 Card.displayName = "Card"
 
+export const PremiumCard = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { gradient?: boolean }>(
+  ({ className, gradient, ...props }, ref) => (
+    <div 
+      ref={ref} 
+      className={cn(
+        "rounded-3xl border border-white/20 bg-white/80 backdrop-blur-xl text-slate-950 shadow-2xl shadow-slate-200/40 relative overflow-hidden group",
+        gradient && "bg-gradient-to-br from-white to-slate-50/50",
+        className
+      )} 
+      {...props} 
+    />
+  )
+)
+PremiumCard.displayName = "PremiumCard"
+
 export const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("flex flex-col space-y-1.5 p-6", className)} {...props} />
+    <div ref={ref} className={cn("flex flex-col space-y-2 p-8", className)} {...props} />
   )
 )
 CardHeader.displayName = "CardHeader"
 
 export const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn("font-semibold leading-none tracking-tight", className)} {...props} />
+    <h3 ref={ref} className={cn("text-lg font-bold leading-none tracking-tight text-slate-900", className)} {...props} />
   )
 )
 CardTitle.displayName = "CardTitle"
 
+export const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
+  ({ className, ...props }, ref) => (
+    <p ref={ref} className={cn("text-xs font-medium text-slate-400 uppercase tracking-widest", className)} {...props} />
+  )
+)
+CardDescription.displayName = "CardDescription"
+
 export const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
+    <div ref={ref} className={cn("p-8 pt-0", className)} {...props} />
   )
 )
 CardContent.displayName = "CardContent"
 
-export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'default'|'outline'|'ghost', size?: 'default'|'sm'|'lg' }>(
+export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'default'|'outline'|'ghost'|'premium'|'danger', size?: 'default'|'sm'|'lg'|'xl' }>(
   ({ className, variant = "default", size = "default", ...props }, ref) => {
     const variants = {
-      default: "bg-slate-900 text-slate-50 hover:bg-slate-800 shadow-sm",
-      outline: "border border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900 shadow-sm",
-      ghost: "hover:bg-slate-100 hover:text-slate-900",
+      default: "bg-slate-900 text-slate-50 hover:bg-slate-800 shadow-lg shadow-slate-900/10 active:scale-95",
+      outline: "border border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900 shadow-sm active:scale-95",
+      ghost: "hover:bg-slate-100 hover:text-slate-900 active:scale-95",
+      premium: "bg-brand-600 text-white hover:bg-brand-700 shadow-lg shadow-brand-200 ring-4 ring-brand-50 active:scale-95",
+      danger: "bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-200 active:scale-95",
     };
     const sizes = {
-      default: "h-10 px-4 py-2",
-      sm: "h-9 rounded-md px-3",
-      lg: "h-11 rounded-md px-8",
+      default: "h-11 px-6 py-2 rounded-xl text-sm font-semibold",
+      sm: "h-9 rounded-lg px-4 text-xs font-bold uppercase tracking-wider",
+      lg: "h-14 rounded-2xl px-10 text-base font-bold",
+      xl: "h-16 rounded-[2rem] px-12 text-lg font-black",
     };
     return (
       <button
         ref={ref}
-        className={cn("inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50", variants[variant], sizes[size], className)}
+        className={cn("inline-flex items-center justify-center transition-all duration-300 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50", variants[variant], sizes[size], className)}
         {...props}
       />
     )

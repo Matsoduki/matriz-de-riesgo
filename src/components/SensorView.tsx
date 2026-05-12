@@ -2,11 +2,15 @@ import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Input, Select, Modal, Button } from './ui';
 import { findColumnKey, formatExcelDate } from '../lib/excelParser';
 import { exportToStyledExcel } from '../lib/utils';
-import { Search, Activity, Database, Radio, CheckCircle, Clock, Filter, AlertCircle, Layout, Download, List } from 'lucide-react';
+import { Search, Activity, Database, Radio, CheckCircle, Clock, Filter, AlertCircle, Layout, Download, List, FileSearch, ShieldAlert, Zap, ShieldCheck, Cpu, Network, Radar } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+
+const COLORS = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#0ea5e9', '#38bdf8', '#7dd3fc'];
 import { DetailsModal } from './DetailsModal';
+import { EnterpriseTable } from './EnterpriseTable';
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -40,10 +44,14 @@ export default function SensorView({ data, isOverview }: Props) {
     
     return data.filter(row => {
       const idVal = String(row[idKey || 'Numero'] || '').trim();
-      if (!idVal || idVal.toLowerCase().includes('total') || idVal.toLowerCase() === 'numero') return false;
+      // Only filter out rows where the ID is explicitly "Total" or empty, but be more careful
+      if (!idVal || idVal.toLowerCase() === 'total' || idVal.toLowerCase() === 'numero') return false;
       
-      const rowStr = JSON.stringify(row).toLowerCase();
-      if (rowStr.includes('parámetros') || rowStr.includes('jornada') || rowStr.includes('indicadores')) return false;
+      // Only filter out rows if they look like header/footer noise, but don't check the entire row string for keywords that might be valid data
+      const isHeaderNoise = ['parámetros', 'jornada', 'indicadores'].some(kw => 
+        idVal.toLowerCase().includes(kw)
+      );
+      if (isHeaderNoise) return false;
       
       return true;
     });
@@ -115,6 +123,12 @@ export default function SensorView({ data, isOverview }: Props) {
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
 
+    // Grouping by Analyst for a better business view
+    const topAnalysts = Object.entries(analystMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+
     return {
       total: filtered.length,
       closed,
@@ -123,6 +137,7 @@ export default function SensorView({ data, isOverview }: Props) {
       avgResolution: avgResolution.toFixed(2),
       analystLoad,
       statusDistribution,
+      topAnalysts,
       statusKey: statusKey || 'Status',
       slaKey: slaKey || 'SLA Status',
       idKey: idKey || 'Numero'
@@ -169,24 +184,35 @@ export default function SensorView({ data, isOverview }: Props) {
     return allFilteredData.slice(start, start + pageSize);
   }, [allFilteredData, currentPage]);
 
-  const totalPages = Math.ceil(allFilteredData.length / pageSize);
+  const displayColumnsData = useMemo(() => {
+    if (cleanData.length === 0) return [];
+    
+    const sample = cleanData[0];
+    const keys = Object.keys(sample).filter(k => {
+      if (k.startsWith('__EMPTY')) return false;
+      const lower = k.toLowerCase().trim();
+      return lower !== 'año' && lower !== 'mes' && lower !== 'semana' && lower !== 'día';
+    });
 
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
-
-  const getStatusBadge = (status: string) => {
-    const s = String(status).toLowerCase();
-    if (s.includes('open') || s.includes('abierto')) return 'bg-blue-100 text-blue-700 border-blue-200';
-    if (s.includes('clos') || s.includes('cerrado') || s.includes('resuelto') || s.includes('done') || s.includes('completado')) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-    if (s.includes('pend') || s.includes('espera')) return 'bg-amber-100 text-amber-700 border-amber-200';
-    return 'bg-slate-100 text-slate-600 border-slate-200';
-  };
-
-  const getSLABadge = (sla: string) => {
-    const s = String(sla).toLowerCase();
-    if (s.includes('fuera')) return 'bg-rose-500 text-white border-0 px-2 py-0.5 rounded text-[10px] font-black uppercase';
-    if (s.includes('dentro') || s.includes('cumple')) return 'bg-emerald-500 text-white border-0 px-2 py-0.5 rounded text-[10px] font-black uppercase';
-    return 'bg-slate-200 text-slate-600 border-slate-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase';
-  };
+    return keys.map(key => ({
+      key,
+      label: key,
+      sortable: true,
+      type: (key.toLowerCase().includes('status') || key.toLowerCase().includes('estado')) ? 'badge' as const : 'text' as const,
+      statusConfig: (key.toLowerCase().includes('status') || key.toLowerCase().includes('estado')) ? {
+        'closed': { label: 'Cerrado', color: '#059669', bg: '#ecfdf5', text: '#065f46' },
+        'open': { label: 'Abierto', color: '#2563eb', bg: '#eff6ff', text: '#1e40af' },
+        'resuelto': { label: 'Resuelto', color: '#059669', bg: '#ecfdf5', text: '#065f46' },
+        'abierto': { label: 'Abierto', color: '#2563eb', bg: '#eff6ff', text: '#1e40af' },
+        'pendiente': { label: 'Pendiente', color: '#d97706', bg: '#fffbeb', text: '#92400e' },
+      } : undefined,
+      render: (val: any) => {
+        let displayVal = val;
+        if (key.toLowerCase().includes('fecha')) displayVal = formatExcelDate(val);
+        return <span className={key.toLowerCase().includes('numero') || key.toLowerCase().includes('id') ? 'font-mono' : ''}>{String(displayVal || '')}</span>;
+      }
+    }));
+  }, [cleanData]);
 
   if (cleanData.length === 0) {
     return (
@@ -208,7 +234,7 @@ export default function SensorView({ data, isOverview }: Props) {
           
           <div className="flex justify-between items-start mb-12">
             <div>
-               <h3 className="text-2xl font-black text-slate-800 tracking-tighter">Inteligencia Operativa</h3>
+               <h3 className="text-2xl font-black text-slate-800 tracking-tighter">Análisis Operativo</h3>
                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Soporte Técnico & Performance del Sistema</p>
             </div>
             <div className="px-4 py-2 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center gap-2">
@@ -279,8 +305,90 @@ export default function SensorView({ data, isOverview }: Props) {
     );
   }
 
+  const resetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters = searchTerm !== '' || statusFilter !== 'all';
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
+      {/* Historical Context Header & Analysis */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+         <Card className="lg:col-span-3 border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] overflow-hidden bg-white group">
+            <CardHeader className="p-8 border-b border-slate-50 bg-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-5">
+                   <div className="p-4 bg-slate-50 text-slate-900 rounded-3xl group-hover:bg-slate-900 group-hover:text-white transition-all duration-500">
+                      <Activity size={24} />
+                   </div>
+                   <div>
+                      <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Distribución de Carga por Analista</CardTitle>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Resumen de asignaciones y tickets gestionados por el equipo técnico</p>
+                   </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-8 h-[350px] bg-white">
+               <ResponsiveContainer width="100%" height="100%">
+                 <BarChart data={metrics.topAnalysts} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="name" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fontSize: 9, fontWeight: 700, fill: '#64748b'}} 
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} 
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#ffffff', border: 'none', borderRadius: '16px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '12px' }}
+                      cursor={{ fill: '#f8fafc' }}
+                    />
+                    <Bar 
+                      dataKey="value" 
+                      fill="#0f172a" 
+                      radius={[6, 6, 0, 0]} 
+                      barSize={40}
+                    />
+                 </BarChart>
+               </ResponsiveContainer>
+            </CardContent>
+         </Card>
+
+         <Card className="border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] bg-white border border-slate-100 overflow-hidden">
+            <CardHeader className="p-8 pb-4">
+              <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 text-center">Resumen de Gestión</CardTitle>
+            </CardHeader>
+            <CardContent className="p-8 pt-2 space-y-8">
+              <div className="space-y-6">
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 text-center">Estado de Soporte</p>
+                  <p className="text-xs text-slate-600 leading-relaxed font-semibold text-center">
+                    Rendimiento global dentro de los parámetros de SLA corporativo.
+                  </p>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Registros Totales</span>
+                     <span className="text-2xl font-black text-slate-900">{metrics?.total}</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tasa Resolución</span>
+                     <span className="text-2xl font-black text-emerald-600">{metrics.total > 0 ? ((metrics.closed / metrics.total) * 100).toFixed(1) : 0}%</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+         </Card>
+      </div>
+
       {/* KPIS row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-0 shadow-sm bg-gradient-to-br from-indigo-500 to-indigo-600 text-white">
@@ -362,238 +470,238 @@ export default function SensorView({ data, isOverview }: Props) {
         </Card>
       </div>
 
-      {/* Main Grid */}
-      <Card className="border-0 shadow-sm overflow-hidden">
-        <CardHeader className="bg-slate-50/50 border-b border-slate-100 space-y-4 p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <CardTitle className="text-lg font-black text-slate-800 flex items-center gap-2">
-              <Filter size={18} className="text-indigo-500" />
-              GRILLA DE TICKETS - SENSORES
-            </CardTitle>
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+      {/* Main Grid Section */}
+      <div className="space-y-6 pt-4 border-t border-slate-100">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-6">
+           <div className="flex items-center gap-5">
+              <div className="h-14 w-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg">
+                 <Radio size={24} />
+              </div>
+              <div>
+                 <h3 className="text-xl font-black text-slate-900 tracking-tight uppercase">Explorador de Sensores</h3>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Auditoría de tickets y telemetría</p>
+              </div>
+           </div>
+           
+           <div className="flex items-center gap-3 w-full md:w-auto">
+             <div className="relative flex-1 md:w-64">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <Input 
-                  placeholder="Buscar ticket, analista..." 
-                  className="pl-10 h-9 w-64 bg-white border-slate-200 text-sm focus:ring-0 focus:border-indigo-500"
+                  placeholder="Buscar ticket..." 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-12 h-12 bg-white border-slate-200 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-indigo-500"
                 />
-              </div>
-              <Select 
-                value={statusFilter} 
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-9 text-xs border-slate-200 bg-white"
-              >
-                <option value="all">Todos los estados ({globalCounts.all})</option>
-                <option value="open">Abiertos ({globalCounts.open})</option>
-                <option value="closed">Cerrados / Resueltos ({globalCounts.closed})</option>
-              </Select>
-              <Button onClick={() => setShowDetails(true)} className="h-9 px-4 bg-brand-600 border border-brand-700 text-white hover:bg-brand-700 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
-                 <List size={14} /> Ver Detalles
-              </Button>
-              <Button onClick={() => {
-                   const appliedFilters = {
-                     'Estado': statusFilter === 'all' ? 'Todos los Estados' : (statusFilter === 'open' ? 'Abiertos' : 'Cerrados / Resueltos')
-                   };
-                   exportToStyledExcel(allFilteredData, `Reporte_Sensores_Filtrado.xlsx`, 'Reporte de Sensores', appliedFilters);
-              }} className="h-9 px-4 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 transition-colors shadow-sm text-xs font-bold rounded-lg flex items-center gap-2">
-                   <Download size={14} /> Exportar
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
+             </div>
+             <Button 
+               onClick={() => setShowDetails(true)} 
+               variant="premium"
+               size="sm"
+               className="rounded-2xl h-12 px-8"
+             >
+                <FileSearch size={14} className="mr-2" /> Reporte Auditoría
+             </Button>
+           </div>
+        </div>
 
-        <DetailsModal 
-           isOpen={showDetails} 
-           onClose={() => setShowDetails(false)} 
-           data={allFilteredData} 
-           title="Detalles de Sensores (Full Data)" 
-           filename="Reporte_Sensores_Full.xlsx" 
-           appliedFilters={{
-             'Estado': statusFilter === 'all' ? 'Todos los Estados' : (statusFilter === 'open' ? 'Abiertos' : 'Cerrados / Resueltos')
-           }}
+        {/* Quick Filters */}
+        <div className="flex flex-wrap items-center gap-3 p-5 bg-slate-50/50 rounded-[2rem] border border-slate-100">
+          <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 min-w-[200px]">
+              <div className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg"><Filter size={14} /></div>
+              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
+                 <option value="all">Todos los Estados</option>
+                 <option value="closed">Cerrados / Resueltos</option>
+                 <option value="open">Pendientes / Abiertos</option>
+              </Select>
+           </div>
+
+           {hasActiveFilters && (
+             <Button 
+               variant="ghost" 
+               size="sm" 
+               className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-600"
+               onClick={resetFilters}
+             >
+                Limpiar
+             </Button>
+           )}
+        </div>
+
+        <EnterpriseTable 
+          data={allFilteredData}
+          columns={displayColumnsData}
+          onRowClick={(row) => setSelectedRow(row)}
+          hideHeader={true}
+          onExport={(data) => {
+            const appliedFilters = {
+              'Estado': statusFilter === 'all' ? 'Todos los Estados' : (statusFilter === 'open' ? 'Abiertos' : 'Cerrados / Resueltos')
+            };
+            exportToStyledExcel(data, `Reporte_Sensores.xlsx`, 'Reporte de Sensores', appliedFilters);
+          }}
         />
 
-        <CardContent className="p-0 overflow-x-auto hide-scrollbar">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.15em] border-b border-slate-100">Número ID</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.15em] border-b border-slate-100">Estado Op</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.15em] border-b border-slate-100">Responsable</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.15em] border-b border-slate-100">Entidad / Cliente</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.15em] border-b border-slate-100">SLA Performance</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.15em] border-b border-slate-100 text-right">Lead Time</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {paginatedData.map((row, i) => {
-                const statusVal = String(row[metrics?.statusKey || 'Status'] || '');
-                const slaVal = String(row[metrics?.slaKey || 'SLA Status'] || '');
-                const resolutionVal = row['Días Resolución'] || row['días resolución'] || '0';
-                
-                return (
-                  <tr 
-                    key={i} 
-                    className="group hover:bg-brand-50/30 transition-all cursor-pointer bg-white"
-                    onClick={() => setSelectedRow(row)}
-                  >
-                    <td className="px-6 py-5">
-                      <span className="text-[11px] font-mono font-black text-brand-600 group-hover:underline">
-                        {row[metrics?.idKey || 'Numero']}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5">
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusBadge(statusVal)}`}>
-                        <div className="w-1 h-1 rounded-full mr-2 opacity-70" />
-                        {statusVal}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5">
-                      <p className="text-[11px] font-bold text-slate-700 tracking-tight">{row['Analista'] || row['analista'] || 'No Asignado'}</p>
-                    </td>
-                    <td className="px-6 py-5">
-                      <p className="text-[11px] font-medium text-slate-500 truncate max-w-[200px]">{row['Empresa'] || row['empresa'] || 'N/A'}</p>
-                    </td>
-                    <td className="px-6 py-5">
-                      <span className={`${getSLABadge(slaVal)} text-[9px] px-3 font-black`}>{slaVal}</span>
-                    </td>
-                    <td className="px-6 py-5 text-right">
-                      <span className="text-[11px] font-mono font-black text-slate-400 group-hover:text-slate-900 transition-colors">
-                        {resolutionVal} <span className="text-[8px] font-bold uppercase opacity-50 ml-0.5">días</span>
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-              {paginatedData.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-6 py-24 text-center">
-                    <div className="flex flex-col items-center justify-center space-y-4 max-w-xs mx-auto">
-                       <div className="p-4 bg-slate-100 rounded-full text-slate-400">
-                          <Activity className="h-8 w-8" />
-                       </div>
-                       <p className="text-sm font-bold text-slate-900 uppercase tracking-widest">Sin Actividad Relevante</p>
-                       <p className="text-xs text-slate-500 leading-relaxed">No se encontraron tickets activos que coincidan con los parámetros de búsqueda configurados.</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          
-          <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-loose">
-                Mostrando {paginatedData.length} de {allFilteredData.length} registros
-              </span>
-              <span className="text-[9px] text-slate-400 font-bold uppercase">Página {currentPage} de {totalPages || 1}</span>
-            </div>
+      {/* Advanced Sensor Insight - Centered Floating Engine */}
+      <AnimatePresence>
+        {selectedRow && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedRow(null)}
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] transition-all cursor-cross"
+            />
             
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-30"
+            <div className="fixed inset-0 flex items-center justify-center p-4 md:p-8 z-[101] pointer-events-none">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+                className="w-full max-w-4xl max-h-[90vh] bg-white rounded-[3rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.3)] flex flex-col overflow-hidden border border-slate-100 pointer-events-auto"
               >
-                Anterior
-              </button>
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                const pageNum = i + 1;
-                return (
-                  <button 
-                    key={pageNum}
-                    onClick={() => setCurrentPage(pageNum)}
-                    className={`h-8 w-8 rounded-lg flex items-center justify-center text-[10px] font-black border transition-all ${
-                      currentPage === pageNum 
-                        ? 'bg-slate-900 border-slate-900 text-white shadow-lg' 
-                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
-              {totalPages > 5 && <span className="text-slate-400 px-1">...</span>}
-              <button 
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages || totalPages === 0}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-30"
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Professional Detail Modal */}
-      {selectedRow && (
-        <Modal 
-          isOpen={!!selectedRow} 
-          onClose={() => setSelectedRow(null)}
-          title={`Análisis Ejecutivo: Ticket ${selectedRow[metrics?.idKey || 'Numero']}`}
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-2">
-            <div className="lg:col-span-2 space-y-8">
-               <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-900 text-white rounded-3xl group overflow-hidden relative">
-                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                        <Activity size={60} />
-                     </div>
-                     <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">Estado de Operación</p>
-                     <p className="text-2xl font-black">{String(selectedRow[metrics?.statusKey || 'Status']).toUpperCase()}</p>
+                <div className="relative h-64 bg-slate-900 flex-shrink-0 overflow-hidden">
+                  <div className="absolute inset-0">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(99,102,241,0.25),transparent)]" />
+                    <motion.div 
+                      animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.4, 0.3], x: [0, 20, 0] }}
+                      transition={{ duration: 15, repeat: Infinity }}
+                      className="absolute -top-20 -left-20 w-96 h-96 bg-indigo-600/20 rounded-full blur-[100px]" 
+                    />
+                    <motion.div 
+                      animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.3, 0.2], x: [0, -30, 0] }}
+                      transition={{ duration: 12, repeat: Infinity, delay: 1 }}
+                      className="absolute -bottom-20 -right-20 w-80 h-80 bg-brand-600/20 rounded-full blur-[80px]" 
+                    />
                   </div>
-                  <div className={`p-4 rounded-3xl border-2 ${String(selectedRow[metrics?.slaKey || 'SLA Status']).toLowerCase().includes('fuera') ? 'border-rose-100 bg-rose-50 text-rose-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'}`}>
-                     <p className="text-[9px] font-black uppercase tracking-widest mb-1 opacity-70">Desempeño SLA</p>
-                     <p className="text-2xl font-black">{selectedRow[metrics?.slaKey || 'SLA Status']}</p>
-                  </div>
-               </div>
-
-               <div className="space-y-4">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-1">Telemetría de Negocio</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-6">
-                    {Object.entries(selectedRow)
-                      .filter(([key]) => !['numero', 'status', 'sla', 'id', 'fecha'].some(exc => key.toLowerCase().includes(exc)))
-                      .map(([key, value]) => (
-                        <div key={key} className="flex flex-col p-4 bg-white border border-slate-100 rounded-2xl group hover:border-indigo-100 transition-colors">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{key}</span>
-                          <span className="text-sm font-black text-slate-800 break-words line-clamp-2">{String(value)}</span>
-                        </div>
-                      ))}
-                  </div>
-               </div>
-            </div>
-
-            <div className="space-y-6">
-               <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6 border-b border-slate-200 pb-2">Impacto en Decisión</h4>
-                  <div className="space-y-6">
-                     <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-2">Responsabilidad Directa</p>
-                        <div className="flex items-center gap-3">
-                           <div className="h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs">
-                              {String(selectedRow['Analista'] || 'NA').substring(0,2).toUpperCase()}
+                  
+                  <div className="absolute top-10 left-10 right-10 flex justify-between items-start">
+                     <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                           <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
+                              <span className="text-[9px] font-black text-white uppercase tracking-[0.3em]">
+                                 {metrics.idKey ? String(selectedRow[metrics.idKey] || 'SENSOR-ID') : 'TELEMETRÍA TÉCNICA'}
+                              </span>
                            </div>
-                           <p className="text-sm font-black text-slate-800">{selectedRow['Analista'] || 'Sin Asignar'}</p>
+                           <div className="px-3 py-1 bg-indigo-500/20 backdrop-blur-md rounded-full border border-indigo-500/30">
+                              <span className="text-[9px] font-black text-indigo-200 uppercase tracking-[0.3em]">
+                                Registro Verificado
+                              </span>
+                           </div>
                         </div>
                      </div>
-                     <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-2">Ciclo de Resolución</p>
-                        <p className="text-2xl font-black text-slate-800">{selectedRow['Días Resolución'] || '0'} <span className="text-xs text-slate-400 uppercase font-bold">Días Transcurridos</span></p>
-                     </div>
-                     <div className="pt-4">
-                        <button className="w-full py-4 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-slate-800 transition-colors shadow-xl shadow-slate-200">
-                           Aprobar Escalamiento
-                        </button>
-                     </div>
+                     <button 
+                       onClick={() => setSelectedRow(null)}
+                       className="h-12 w-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all active:scale-95 group"
+                     >
+                       <Zap size={20} className="group-hover:rotate-12 transition-transform" />
+                     </button>
                   </div>
-               </div>
+
+                  <div className="absolute bottom-10 left-10 right-10">
+                    <h3 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-tight line-clamp-2 uppercase">
+                      {findColumnKey(selectedRow, ['asunto', 'resumen', 'summary', 'descripción']) ? 
+                        String(selectedRow[findColumnKey(selectedRow, ['asunto', 'resumen', 'summary', 'descripción'])!] || 'Evento de Sensor') : 
+                        'Sin Descripción Operativa'}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-6 mt-6">
+                       <div className="flex items-center gap-3">
+                          <div className={`h-2.5 w-2.5 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.6)] ${
+                            String(selectedRow[metrics.statusKey]).toLowerCase().match(/cerrado|done|resuelto/) ? 'bg-emerald-400' : 'bg-amber-400'
+                          }`} />
+                          <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">
+                             {String(selectedRow[metrics.statusKey]) || 'ESTADO N/A'}
+                          </span>
+                       </div>
+                       <div className="h-4 w-px bg-white/10 hidden sm:block" />
+                       <div className="flex items-center gap-2">
+                          <ShieldAlert size={14} className="text-brand-400" />
+                          <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">
+                             {selectedRow[metrics.slaKey] || 'SLA Estándar'}
+                          </span>
+                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-10 space-y-12 bg-[#fafaff] scrollbar-hide">
+                  <section>
+                     <div className="flex items-center gap-4 mb-8">
+                        <div className="h-1 w-10 bg-indigo-500 rounded-full" />
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Métricas Operativas</h4>
+                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {[
+                          { label: 'MTTR Acumulado', val: `${selectedRow['Días Resolución'] || '0'} Días`, desc: 'Ciclo de vida', color: 'emerald', icon: Clock },
+                          { label: 'Asignación', val: String(selectedRow['Analista'] || 'Sin Asignar').toUpperCase(), desc: 'Responsable', color: 'indigo', icon: Target }
+                        ].map((stat, i) => (
+                          <motion.div 
+                            key={i} 
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: i * 0.1 }}
+                            className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-5 group hover:shadow-xl transition-all"
+                          >
+                             <div className={`p-4 rounded-2xl bg-indigo-50 text-indigo-600 group-hover:scale-110 transition-transform`}>
+                                <stat.icon size={20} />
+                             </div>
+                             <div>
+                                <span className="text-[18px] font-black text-slate-800 leading-none block mb-1">{stat.val}</span>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{stat.label}</span>
+                             </div>
+                          </motion.div>
+                        ))}
+                     </div>
+                  </section>
+
+                  <section>
+                    <div className="flex items-center gap-3 mb-8">
+                       <div className="p-2 rounded-xl bg-slate-900 text-white">
+                          <Cpu size={16} />
+                       </div>
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Capa Técnica & Telemetría</h4>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                       {Object.entries(selectedRow)
+                         .filter(([key, value]) => 
+                            !['numero', 'status', 'sla', 'id', 'fecha', 'analista', 'días resolución', 'asunto', 'resumen', 'summary', 'descripción'].some(exc => key.toLowerCase().includes(exc)) &&
+                            value && String(value).trim() !== '-' && !key.startsWith('__EMPTY')
+                         ).map(([key, value]) => (
+                            <div key={key} className="p-5 bg-white rounded-2xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">{key}</span>
+                               <span className="text-[12px] font-bold text-slate-700 leading-relaxed font-mono">{String(value)}</span>
+                            </div>
+                         ))}
+                    </div>
+                  </section>
+                </div>
+
+                <div className="p-10 bg-white border-t border-slate-100 flex items-center justify-between bg-gradient-to-l from-white to-slate-50">
+                   <div className="flex items-center gap-10">
+                      <div className="flex items-center gap-3">
+                         <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center p-2 text-slate-400">
+                            <FileSearch size={20} />
+                         </div>
+                         <div>
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block leading-none mb-1">Capa de Datos</span>
+                            <span className="text-[11px] font-black text-slate-800 uppercase tracking-tight">Registro de Telemetría</span>
+                         </div>
+                      </div>
+                   </div>
+                   <button 
+                     onClick={() => setSelectedRow(null)}
+                     className="px-12 py-5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black hover:shadow-2xl transition-all active:scale-95 flex items-center gap-3 group"
+                   >
+                      <List size={16} className="group-hover:-translate-x-1 transition-transform" />
+                      Cerrar Registro
+                   </button>
+                </div>
+              </motion.div>
             </div>
-          </div>
-        </Modal>
-      )}
+          </>
+        )}
+      </AnimatePresence>
+      </div>
     </div>
   );
 }

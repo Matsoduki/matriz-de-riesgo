@@ -16,6 +16,8 @@ interface Props {
     governanceCount: number;
     weeklyCreated?: number;
     weeklyResolved?: number;
+    weeklyCreatedDelta?: number;
+    weeklyResolvedDelta?: number;
     chiVal?: number;
   };
   onCardClick?: (type: 'chi' | 'critical' | 'sla' | 'aging') => void;
@@ -78,8 +80,15 @@ export const CyberMetricsCards: React.FC<Props> = ({ metrics, onCardClick }) => 
           </div>
           <div className="mt-6 pt-6 border-t border-slate-50 flex items-center justify-between">
             <div className="flex flex-col text-left">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Creación Semana</span>
-              <span className="text-xs font-black text-rose-500">+{metrics.weeklyCreated || 0} Gaps</span>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Carga Semanal (Viernes)</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-rose-500">Registros Nuevos: {metrics.weeklyCreated || 0}</span>
+                {metrics.weeklyCreatedDelta !== undefined && (
+                  <div className={`flex items-center text-[8px] font-black px-1 rounded ${metrics.weeklyCreatedDelta > 0 ? 'bg-rose-500/10 text-rose-600' : 'bg-emerald-500/10 text-emerald-600'}`}>
+                    {metrics.weeklyCreatedDelta > 0 ? '+' : ''}{metrics.weeklyCreatedDelta}%
+                  </div>
+                )}
+              </div>
             </div>
             <Flame size={16} className={metrics.critical > 0 ? 'text-rose-500 animate-pulse' : 'text-slate-200'} />
           </div>
@@ -107,8 +116,15 @@ export const CyberMetricsCards: React.FC<Props> = ({ metrics, onCardClick }) => 
           </div>
           <div className="mt-6 pt-6 border-t border-slate-50 flex items-center justify-between">
             <div className="flex flex-col text-left">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Cierres Semana</span>
-              <span className="text-xs font-black text-emerald-500">-{metrics.weeklyResolved || 0} Gaps</span>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Cierres de Ciclo (Viernes)</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-emerald-500">Cierres Ejecutados: {metrics.weeklyResolved || 0}</span>
+                {metrics.weeklyResolvedDelta !== undefined && (
+                  <div className={`flex items-center text-[8px] font-black px-1 rounded ${metrics.weeklyResolvedDelta >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
+                    {metrics.weeklyResolvedDelta >= 0 ? '+' : ''}{metrics.weeklyResolvedDelta}%
+                  </div>
+                )}
+              </div>
             </div>
             <CheckCircle2 size={16} className="text-emerald-300" />
           </div>

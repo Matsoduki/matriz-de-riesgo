@@ -108,32 +108,11 @@ export const parseExcelFile = async (file: File): Promise<DashboardData> => {
         const rejected: any[] = [];
         const processSheet = (data: any[]) => {
           return data.filter(row => {
-            // Check if any value is not empty, not just whitespace, and not just a dash
-            const hasData = Object.values(row).some(v => {
+            // Check if any value has real information
+            return Object.values(row).some(v => {
               const str = String(v || "").trim();
-              return str !== "" && str !== "-" && str.toLowerCase() !== "n/a";
+              return str !== "" && str !== "-" && str.toLowerCase() !== "n/a" && str !== ".";
             });
-            if (!hasData) return false;
-            
-            // Identifying fields
-            const project = String(row['PROYECTO O TAREA'] || row['Proyecto'] || row['Tarea'] || '').trim();
-            const id = String(row['Vulnerabilidades'] || row['GAP'] || row['Identificación'] || row['Numero'] || '').trim();
-            const activity = String(row['Actividad'] || row['Acciones'] || row['Sitación Actual'] || row['Description'] || '').trim();
-            
-            const isPlaceholder = (val: string) => {
-              const v = val.toLowerCase();
-              return v === "" || v === "-" || v === "n/a" || v === "no aplica" || v === ".";
-            };
-
-            // A row is valid if it has real textual content in at least one identifying column
-            const hasMainContent = 
-              (!isPlaceholder(project) && project.length > 2) || 
-              (!isPlaceholder(id) && id.length > 2) ||
-              (!isPlaceholder(activity) && activity.length > 4);
-            
-            if (!hasMainContent) return false;
-
-            return true;
           });
         };
 

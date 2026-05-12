@@ -103,10 +103,10 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
   const globalMetrics = React.useMemo(() => {
         const sensor = data.sensor || [];
     const mandoYControl = data.mandoYControl || [];
-    const jira2026 = data.jira2026 || [];
     const jira2025 = data.jira2025 || [];
+    const jira2026 = data.jira2026 || [];
 
-    const totalItems = jira2025.length + sensor.length + mandoYControl.length;
+    const totalItems = jira2025.length + sensor.length + mandoYControl.length + jira2026.length;
     
     // Better critical logic (handles dashes and N/A correctly)
     const criticalSecurity = mandoYControl.filter(m => {
@@ -172,7 +172,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
 
     if (currentView === 'overview' || currentView === 'jira2025') {
       exportData = data.jira2025;
-      filename = 'Reporte_Jira_2025.xlsx';
+      filename = 'Reporte_Seguimiento_TI.xlsx';
     } else if (currentView === 'jira2026') {
       exportData = data.jira2026;
       filename = 'Reporte_Jira_2026.xlsx';
@@ -206,12 +206,12 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
       <aside className="w-64 border-r border-slate-200 bg-white flex flex-col hide-scrollbar relative z-30">
         <div className="p-8">
           <h1 className="text-xl font-black tracking-tight text-slate-900 flex items-center gap-2">
-            <div className="h-8 w-8 bg-brand-600 rounded-lg flex items-center justify-center text-white">
+            <div className="h-9 w-9 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg">
               <Shield size={18} />
             </div>
             <div className="flex flex-col">
-              <span className="text-lg font-black tracking-tighter leading-none">MAC<span className="text-brand-600">.</span></span>
-              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Matriz Actividades Ciberseguridad</span>
+              <span className="text-xl font-black tracking-tighter leading-none">MAC<span className="text-brand-600">.</span></span>
+              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-tight">Matriz de Actividades y Riesgos</span>
             </div>
           </h1>
         </div>
@@ -228,7 +228,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           </div>
           <NavItem 
             icon={<Activity size={18} />} 
-            label="Seguimiento 2025" 
+            label="Portfolio Seguimiento" 
             isActive={currentView === 'jira2025'} 
             onClick={() => setCurrentView('jira2025')} 
           />
@@ -274,7 +274,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           />
           <NavItem 
             icon={<FileSearch size={18} />} 
-            label="Gap Intelligence" 
+            label="Análisis de Brechas" 
             isActive={currentView === 'gapFinder'} 
             onClick={() => setCurrentView('gapFinder')} 
             alert={globalMetrics.governanceGaps > 0}
@@ -301,7 +301,9 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
                {currentView === 'overview' ? 'Resumen Ejecutivo' :
                 currentView === 'sensor' ? 'Gestión de Telemetría' :
                 currentView === 'mandoYControl' ? 'Resiliencia de Postura MAC' :
-                currentView === 'gapFinder' ? 'Gap Intelligence & Bestiary Mapping' :
+                currentView === 'gapFinder' ? 'Análisis de Brechas & Mapeo de Riesgos' :
+                currentView === 'jira2025' ? 'Seguimiento TI' :
+                currentView === 'jira2026' ? 'Hoja de Ruta 2026' :
                 currentView === 'teamInitiatives' ? 'Desempeño Iniciativas 2026' :
                 currentView === 'teamSupport' ? 'Desempeño Soporte Técnico' :
                 currentView === 'teamPerformance' ? 'Desempeño de Equipo' :
@@ -335,33 +337,45 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
               transition={{ duration: 0.3, ease: "easeInOut" }}
             >
               {currentView === 'overview' && (
-                <div className="space-y-12">
+                <div className="space-y-12 pb-20">
+                  {/* Strategic Header */}
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
                     <div className="md:col-span-12 xl:col-span-5">
-                      <Card className="h-full border-0 shadow-2xl shadow-brand-100/40 bg-slate-900 text-white overflow-hidden relative group rounded-3xl">
-                        <div className="absolute inset-0 bg-gradient-to-br from-brand-900/50 to-transparent z-0" />
-                        <div className="absolute -right-10 -bottom-10 opacity-10 group-hover:scale-110 transition-transform duration-1000 z-0">
-                          <Activity size={240} />
+                      <Card className="h-full border-0 shadow-2xl shadow-slate-200/50 bg-white text-slate-900 overflow-hidden relative group rounded-[3rem] border border-slate-100">
+                        <div className="absolute inset-0 bg-gradient-to-br from-slate-50/50 via-transparent to-transparent z-0" />
+                        <div className="absolute -right-10 -bottom-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-[2s] z-0">
+                          <Activity size={320} />
                         </div>
-                        <CardContent className="p-12 relative z-10 flex flex-col h-full">
-                          <p className="text-brand-300 text-[10px] font-bold uppercase tracking-[0.25em] mb-10 opacity-70">Salud de Ejecución Global</p>
-                          <div className="flex items-baseline gap-4 mb-2">
-                            <span className="text-8xl font-black tracking-tighter text-white">{globalMetrics.globalHealthIndex}%</span>
-                            <div className="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-[10px] font-black uppercase tracking-widest">
-                              Estable
-                            </div>
+                        <CardContent className="p-14 relative z-10 flex flex-col h-full">
+                          <div className="flex items-center gap-4 mb-12">
+                             <div className="h-1.5 w-12 bg-slate-900 rounded-full" />
+                             <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">Dashboard de Control Operativo</span>
                           </div>
-                          <div className="mt-auto space-y-4">
+                          
+                          <div className="flex flex-col mb-12">
+                            <div className="flex items-baseline gap-4">
+                              <span className="text-[120px] font-black tracking-tighter text-slate-900 leading-none">{globalMetrics.globalHealthIndex}<span className="text-slate-300">%</span></span>
+                            </div>
+                            <p className="text-lg font-bold text-slate-500 mt-4 max-w-xs leading-tight">Índice Consolidado de Desempeño y Resiliencia del Servicio.</p>
+                          </div>
+
+                          <div className="mt-auto space-y-6">
                              <div className="flex justify-between items-end">
-                                <p className="text-xs font-medium text-brand-200/60 uppercase tracking-widest">Integridad Operativa</p>
-                                <p className="text-sm font-bold text-brand-400">{globalMetrics.globalHealthIndex}%</p>
+                                <div className="space-y-1">
+                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Estado del Sistema</p>
+                                   <p className="text-xl font-black text-slate-900">OPERACIÓN ÓPTIMA</p>
+                                </div>
+                                <div className="text-right">
+                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Variación Semanal</p>
+                                   <p className="text-lg font-black text-emerald-600">+2.4%</p>
+                                </div>
                              </div>
-                             <div className="h-1.5 w-full bg-slate-800/80 rounded-full overflow-hidden">
+                             <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden p-1 border border-slate-200 shadow-inner">
                                 <motion.div 
                                   initial={{ width: 0 }}
                                   animate={{ width: `${globalMetrics.globalHealthIndex}%` }}
-                                  transition={{ duration: 1.5, ease: "circOut" }}
-                                  className="h-full bg-brand-500 shadow-[0_0_20px_rgba(99,102,241,0.6)]" 
+                                  transition={{ duration: 2, ease: "circOut" }}
+                                  className="h-full bg-slate-900 rounded-full" 
                                 />
                              </div>
                           </div>
@@ -371,75 +385,79 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
 
                     <div className="md:col-span-12 xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-8">
                        <StatCard 
-                          title="Resiliencia Global"
+                          title="Integridad Operativa"
                           value={`${globalMetrics.globalHealthIndex}%`}
-                          subvalue="+2.4%"
-                          subtitle="Salud Estratégica"
+                          subvalue="+1.2%"
+                          subtitle="Score Semanal"
                           icon={Activity}
                           color="bg-brand-50 text-brand-600"
                           delay={0.1}
                        />
                        <StatCard 
-                          title="Exposición de Riesgo"
+                          title="Concentración de Riesgo"
                           value={globalMetrics.criticalSecurity}
-                          subvalue={globalMetrics.criticalSecurity > 5 ? "Crítica" : "Controlada"}
-                          subtitle="Iniciativas Sensibles"
+                          subvalue={globalMetrics.criticalSecurity > 5 ? "Crítico" : "Bajo"}
+                          subtitle="Alerta Temprana"
                           icon={ShieldAlert}
                           color="bg-rose-50 text-rose-600"
                           delay={0.2}
                        />
                        <StatCard 
-                          title="Gobernanza Cyber"
+                          title="Coverage Estratégico"
                           value={`${globalMetrics.governanceCoverage}%`}
-                          subvalue={globalMetrics.governanceGaps > 0 ? `-${globalMetrics.governanceGaps} Gaps` : "Mapeo Total"}
-                          subtitle="Alineación Estratégica"
+                          subvalue={globalMetrics.governanceGaps > 0 ? `${globalMetrics.governanceGaps} Gaps` : "Total"}
+                          subtitle="Mapeo de Control"
                           icon={Target}
                           color="bg-emerald-50 text-emerald-600"
                           delay={0.3}
                        />
                        <StatCard 
-                          title="Tickets en Caliente"
-                          value={globalMetrics.weeklyPerformance.overdue}
-                          subvalue="Retraso"
-                          subtitle="Fuera de Fecha"
-                          icon={AlertCircle}
-                          color="bg-amber-50 text-amber-600"
+                          title="Iniciativas 2026"
+                          value={globalMetrics.jira2026Metrics.total}
+                          subvalue={`${globalMetrics.jira2026Metrics.completed} Completadas`}
+                          subtitle="Avance Hoja de Ruta"
+                          icon={TrendingUp}
+                          color="bg-indigo-50 text-indigo-600"
                           delay={0.4}
                        />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 pt-4">
-                    <div className="space-y-6">
-                       <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                          <h4 className="text-sm font-bold text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                             <div className="h-4 w-1 bg-brand-600 rounded-full" />
-                             Métricas Proyectos TI
-                          </h4>
-                          <Button variant="ghost" size="sm" className="text-[10px] font-bold text-brand-600 uppercase tracking-widest hover:bg-brand-50 rounded-lg" onClick={() => setCurrentView('jira2025')}>
-                             Ver Detalles <ArrowUpRight size={12} className="ml-1" />
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                    <div className="lg:col-span-7 space-y-8">
+                       <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+                          <div className="flex items-center gap-4">
+                             <div className="h-2 w-2 rounded-full bg-brand-600 animate-pulse shadow-[0_0_10px_#6366f1]" />
+                             <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Portfolio Analytics</h4>
+                          </div>
+                          <Button variant="ghost" size="sm" className="text-[10px] font-black text-brand-600 uppercase tracking-widest hover:bg-brand-50 rounded-xl px-4 py-2" onClick={() => setCurrentView('jira2025')}>
+                             Expandir Vista <ArrowUpRight size={14} className="ml-2" />
                           </Button>
                        </div>
-                       <JiraView data={data.jira2025} title="Estado Proyectos Activos" isOverview />
+                       <Card className="border-0 shadow-2xl rounded-[3rem] overflow-hidden bg-white">
+                          <JiraView data={data.jira2025} title="Portfolio Oversight" isOverview maxYear={2025} />
+                       </Card>
                     </div>
 
-                    <div className="space-y-6">
-                       <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                          <h4 className="text-sm font-bold text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                             <div className="h-4 w-1 bg-emerald-600 rounded-full" />
-                             Continuidad Operativa
-                          </h4>
-                          <Button variant="ghost" size="sm" className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest hover:bg-emerald-50 rounded-lg" onClick={() => setCurrentView('sensor')}>
-                             Ver Detalles <ArrowUpRight size={12} className="ml-1" />
+                    <div className="lg:col-span-5 space-y-8">
+                       <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+                          <div className="flex items-center gap-4">
+                             <div className="h-2 w-2 rounded-full bg-emerald-600 animate-pulse shadow-[0_0_10px_#10b981]" />
+                             <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Continuidad & SLAs</h4>
+                          </div>
+                          <Button variant="ghost" size="sm" className="text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:bg-emerald-50 rounded-xl px-4 py-2" onClick={() => setCurrentView('sensor')}>
+                             Auditar Leads <ArrowUpRight size={14} className="ml-2" />
                           </Button>
                        </div>
-                       <SensorView data={data.sensor} isOverview />
+                       <Card className="border-0 shadow-2xl rounded-[3rem] overflow-hidden bg-white">
+                          <SensorView data={data.sensor} isOverview />
+                       </Card>
                     </div>
                   </div>
                 </div>
               )}
               
-              {currentView === 'jira2025' && <JiraView data={data.jira2025} title="Gestión TI 2025" />}
+              {currentView === 'jira2025' && <JiraView data={data.jira2025} title="Seguimiento TI" maxYear={2025} />}
               {currentView === 'jira2026' && <JiraView data={data.jira2026} title="Hoja de Ruta 2026" />}
               {currentView === 'teamInitiatives' && <TeamPerformanceView data={data.jira2026} title="Desempeño Iniciativas 2026" subtitle="Análisis de ejecución y efectividad del equipo TI en proyectos estratégicos (Tickets Jira)." />}
               {currentView === 'sensor' && <SensorView data={data.sensor} />}
