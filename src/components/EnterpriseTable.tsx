@@ -34,6 +34,7 @@ interface EnterpriseTableProps {
   isLoading?: boolean;
   onRowClick?: (row: any) => void;
   hideHeader?: boolean;
+  getRowClassName?: (row: any) => string;
 }
 
 export const EnterpriseTable: React.FC<EnterpriseTableProps> = ({ 
@@ -43,7 +44,8 @@ export const EnterpriseTable: React.FC<EnterpriseTableProps> = ({
   onExport,
   isLoading,
   onRowClick,
-  hideHeader = false
+  hideHeader = false,
+  getRowClassName
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
@@ -169,56 +171,72 @@ export const EnterpriseTable: React.FC<EnterpriseTableProps> = ({
         </div>
       )}
 
-      <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden">
-        <div className="overflow-x-auto relative">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/50">
-                {columns.map((col) => (
+      <div className="bg-white rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] border border-slate-100 overflow-hidden group/table relative">
+        <div className="overflow-x-auto relative scroll-smooth scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-200 hover:scrollbar-thumb-slate-300">
+          <table className="w-full border-collapse text-left table-auto min-w-[1000px]">
+            <thead className="sticky top-0 z-20">
+              <tr className="border-b border-slate-100 bg-white/80 backdrop-blur-xl">
+                {columns.map((col, i) => (
                   <th 
                     key={col.key} 
-                    className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 select-none cursor-pointer hover:bg-slate-50 group"
+                    className={`px-8 py-7 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 select-none cursor-pointer hover:bg-slate-50 transition-all group/th ${i === 0 ? 'sticky left-0 bg-white/90 backdrop-blur-2xl z-30' : ''}`}
                     onClick={() => col.sortable !== false && handleSort(col.key)}
                   >
-                    <div className="flex items-center gap-2">
-                      {col.label}
+                    <div className="flex items-center gap-2.5">
+                      <span className="relative">
+                        {col.label}
+                        <motion.div 
+                          className="absolute -bottom-1 left-0 h-[2px] bg-brand-500 rounded-full"
+                          initial={{ width: 0 }}
+                          animate={{ width: sortConfig?.key === col.key ? '100%' : 0 }}
+                        />
+                      </span>
                       {col.sortable !== false && (
-                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className={`transition-all duration-300 ${sortConfig?.key === col.key ? 'opacity-100 scale-110' : 'opacity-0 translate-y-1 group-hover/th:opacity-100 group-hover/th:translate-y-0'}`}>
                           {sortConfig?.key === col.key ? (
-                            sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                            sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-brand-500" /> : <ChevronDown size={12} className="text-brand-500" />
                           ) : (
                             <ArrowUpDown size={12} className="text-slate-300" />
                           )}
                         </div>
                       )}
                     </div>
+                    {i === 0 && <div className="absolute right-0 top-0 bottom-0 w-[1px] bg-slate-100 shadow-[4px_0_15px_rgba(0,0,0,0.05)]" />}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
-              <AnimatePresence mode="popLayout">
+            <tbody className="divide-y divide-slate-50/60 bg-white">
+              <AnimatePresence mode="popLayout" initial={false}>
                 {paginatedData.map((row, idx) => (
                   <motion.tr 
                     key={row.id || idx}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className={`hover:bg-slate-50/50 transition-all group ${onRowClick ? 'cursor-pointer' : ''}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.3, delay: idx * 0.02, ease: [0.23, 1, 0.32, 1] }}
+                    className={`hover:bg-slate-50/50 transition-all duration-300 group/tr ${onRowClick ? 'cursor-pointer' : ''} ${getRowClassName ? getRowClassName(row) : ''}`}
                     onClick={() => onRowClick?.(row)}
                   >
-                    {columns.map((col) => (
-                      <td 
-                        key={col.key} 
-                        className={`${density === 'comfortable' ? 'px-8 py-5' : 'px-8 py-3'} text-sm font-medium text-slate-700 transition-all`}
-                      >
-                        {col.render ? col.render(row[col.key], row) : (
-                          col.type === 'badge' ? renderBadge(row[col.key]) : 
-                          col.type === 'number' ? <span className="font-mono text-slate-500 font-bold">{row[col.key]}</span> :
-                          row[col.key] || <span className="text-slate-300">-</span>
-                        )}
-                      </td>
-                    ))}
+                    {columns.map((col, i) => {
+                      const rowClass = getRowClassName ? getRowClassName(row) : "";
+                      const stickyExtraClass = i === 0 ? rowClass.split(" ").filter(c => c.startsWith("border-l") || c.startsWith("bg-")).join(" ") : "";
+                      return (
+                        <td 
+                          key={col.key} 
+                          className={`${density === 'comfortable' ? 'px-8 py-6' : 'px-8 py-3.5'} text-[13px] font-semibold text-slate-600 transition-all duration-300 group-hover/tr:text-slate-900 ${i === 0 ? `sticky left-0 ${stickyExtraClass || 'bg-white'} group-hover/tr:bg-slate-50/50 z-10 border-r border-slate-50/80` : ''}`}
+                        >
+                          <div className="relative z-10">
+                            {col.render ? col.render(row[col.key], row) : (
+                              col.type === 'badge' ? renderBadge(row[col.key]) : 
+                              col.type === 'number' ? <span className="font-mono text-slate-400 group-hover/tr:text-brand-600 transition-colors font-bold tracking-tight text-sm">{row[col.key]}</span> :
+                              row[col.key] || <span className="text-slate-200">---</span>
+                            )}
+                          </div>
+                          {i === 0 && <div className="absolute right-0 top-0 bottom-0 w-[1px] bg-slate-100 shadow-[4px_0_15px_rgba(0,0,0,0.05)] opacity-0 group-hover/tr:opacity-100 transition-opacity" />}
+                        </td>
+                      );
+                    })}
                   </motion.tr>
                 ))}
               </AnimatePresence>

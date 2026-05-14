@@ -69,6 +69,7 @@ import { CyberVendorDetailModal } from "./CyberVendorDetailModal";
 interface Props {
   data: any[];
   title: string;
+  globalMetrics?: any;
 }
 
 const COLORS = [
@@ -154,7 +155,7 @@ export const isCriticalPriority = (val: any) => {
   return matchesCritical && !isExcluded;
 };
 
-export default function CyberView({ data, title }: Props) {
+export default function CyberView({ data, title, globalMetrics }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const [prestadorFilter, setPrestadorFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -914,8 +915,8 @@ export default function CyberView({ data, title }: Props) {
       type: "warning"
     });
     if (insights.length === 0) insights.push({
-      title: "Operación de Clase Mundial",
-      text: "Todos los indicadores (CHI, SLA, MTTR) superan los estándares de resiliencia del sector ciberseguridad.",
+      title: "Análisis Táctico",
+      text: "Todos los indicadores (CHI, SLA, MTTR) se encuentran dentro de los parámetros de control establecidos para el periodo.",
       type: "success"
     });
 
@@ -1032,6 +1033,7 @@ export default function CyberView({ data, title }: Props) {
       .sort((a, b) => b.critical - a.critical || b.total - a.total);
 
     return {
+      criticalCount,
       total: filteredData.length,
       activeGaps,
       totalDelayed,
@@ -1302,6 +1304,61 @@ export default function CyberView({ data, title }: Props) {
         </div>
       </div>
 
+      {globalMetrics && (
+        <section className="mb-12 animate-in fade-in slide-in-from-top-4 duration-1000">
+           <div className="flex items-center gap-6 mb-8">
+              <div className="h-[2px] flex-1 bg-slate-100" />
+              <div className="flex items-center gap-4 px-8 py-3">
+                 <Zap size={18} className="text-slate-400" />
+                 <h4 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">Resiliencia Consolidada MAC</h4>
+              </div>
+              <div className="h-[2px] flex-1 bg-slate-100" />
+           </div>
+           
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl flex flex-col gap-6 group hover:shadow-2xl hover:border-brand-100 transition-all">
+                 <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Hallazgos</span>
+                    <div className="p-3 bg-indigo-50 text-indigo-500 rounded-2xl group-hover:rotate-12 transition-transform"><Activity size={20} /></div>
+                 </div>
+                 <div>
+                    <span className="text-5xl font-black text-slate-900 tracking-tighter">{metrics.total}</span>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Registros Consolidados</p>
+                 </div>
+              </div>
+
+              <div className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl flex flex-col gap-6 group hover:shadow-2xl hover:border-brand-100 transition-all">
+                 <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hallazgos Críticos</span>
+                    <div className="p-3 bg-rose-50 text-rose-500 rounded-2xl group-hover:scale-110 transition-transform"><ShieldAlert size={20} /></div>
+                 </div>
+                 <div>
+                    <span className="text-5xl font-black text-slate-900 tracking-tighter">{metrics.criticalCount}</span>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{((metrics.criticalCount / metrics.total) * 100).toFixed(1)}% Densidad Riesgo</p>
+                 </div>
+              </div>
+
+              <div className="bg-slate-900 p-10 rounded-[3.5rem] shadow-2xl flex flex-col gap-6 group hover:shadow-[0_45px_100px_-20px_rgba(0,0,0,0.5)] transition-all relative overflow-hidden">
+                 <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-150 transition-transform duration-1000"><Zap size={140} /></div>
+                 <div className="flex items-center justify-between relative z-10">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Health Index</span>
+                    <div className="p-3 bg-white/10 text-brand-400 rounded-2xl"><Shield size={20} /></div>
+                 </div>
+                 <div className="relative z-10">
+                    <span className="text-5xl font-black text-white tracking-tighter">{metrics.chiVal}%</span>
+                    <div className="h-1.5 w-full bg-white/10 rounded-full mt-6 overflow-hidden">
+                       <motion.div 
+                         initial={{ width: 0 }} 
+                         animate={{ width: `${metrics.chiVal}%` }} 
+                         className="h-full bg-brand-500 shadow-[0_0_20px_#6366f1]" 
+                       />
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </section>
+      )}
+
       <CyberThroughputView 
         data={filteredData} 
         dateKey={keys?.dateKey || ""} 
@@ -1396,61 +1453,9 @@ export default function CyberView({ data, title }: Props) {
         colors={STATUS_COLORS}
       />
 
-      {/* Panel de Análisis Táctico */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {metrics.operationalInsights?.length > 0 ? (
-          metrics.operationalInsights.map((insight: any, idx: number) => (
-            <motion.div
-              key={idx}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 * idx }}
-              className={`p-6 rounded-[2rem] border shadow-xl relative overflow-hidden group ${
-                insight.type === 'warning' ? 'bg-rose-50 border-rose-100' :
-                insight.type === 'success' ? 'bg-emerald-50 border-emerald-100' :
-                'bg-brand-50 border-brand-100'
-              }`}
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`p-2 rounded-xl border ${
-                  insight.type === 'warning' ? 'bg-rose-100 border-rose-200 text-rose-600' :
-                  insight.type === 'success' ? 'bg-emerald-100 border-emerald-200 text-emerald-600' :
-                  'bg-brand-100 border-brand-200 text-brand-600'
-                }`}>
-                  {insight.type === 'warning' ? <ShieldAlert size={16} /> : 
-                   insight.type === 'success' ? <CheckCircle2 size={16} /> : 
-                   <Lightbulb size={16} />}
-                </div>
-                <h5 className={`text-[10px] font-black uppercase tracking-widest ${
-                  insight.type === 'warning' ? 'text-rose-900/60' :
-                  insight.type === 'success' ? 'text-emerald-900/60' :
-                  'text-brand-900/60'
-                }`}>
-                  {insight.title}
-                </h5>
-              </div>
-              <p className="text-xs font-bold text-slate-800 leading-relaxed">
-                {insight.text}
-              </p>
-              <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-125 transition-transform duration-500">
-                 {insight.type === 'warning' ? <ShieldAlert size={80} /> : 
-                  insight.type === 'success' ? <CheckCircle2 size={80} /> : 
-                  <Target size={80} />}
-              </div>
-            </motion.div>
-          ))
-        ) : (
-          <div className="col-span-3 p-12 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200 text-center">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Esperando Generación de Hallazgos Estratégicos...</p>
-          </div>
-        )}
-      </div>
-      
-
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 gap-8">
         {/* Historical Trends */}
-        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[700px]">
+        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[550px]">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.02]" />
           <CardHeader className="p-10 md:p-14 border-b border-slate-50 relative z-10 shrink-0">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -1740,37 +1745,56 @@ export default function CyberView({ data, title }: Props) {
            </div>
         </div>
 
+
+
         {/* Dynamic Filter Strip */}
         <div className="flex flex-wrap items-center gap-3 p-6 bg-[#fbfcff] rounded-[2rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[200px]">
               <div className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg"><Users size={14} /></div>
               <Select value={prestadorFilter} onChange={(e) => setPrestadorFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
-                 <option value="all">Socio de Negocio</option>
-                 {filterOptions.prestadores.map(p => <option key={p} value={p}>{p}</option>)}
+                 <option value="all">Socio de Negocio ({cleanData.length})</option>
+                 {filterOptions.prestadores.map(p => <option key={p} value={p}>{p} ({filterOptions.counts.prestadores[p] || 0})</option>)}
               </Select>
            </div>
            
            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[180px]">
               <div className="p-1.5 bg-rose-50 text-rose-500 rounded-lg"><ShieldAlert size={14} /></div>
               <Select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
-                 <option value="all">Criticidad</option>
-                 {filterOptions.priorities.map(p => <option key={p} value={p}>{p}</option>)}
+                 <option value="all">Criticidad ({cleanData.length})</option>
+                 {filterOptions.priorities.map(p => <option key={p} value={p}>{p} ({filterOptions.counts.priorities[p] || 0})</option>)}
+              </Select>
+           </div>
+
+           <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[200px]">
+              <div className="p-1.5 bg-brand-50 text-brand-500 rounded-lg"><Users size={14} /></div>
+              <Select value={responsableFilter} onChange={(e) => setResponsableFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
+                 <option value="all">Responsable ({cleanData.length})</option>
+                 {filterOptions.responsables.map(r => <option key={r} value={r}>{r} ({filterOptions.counts.responsables[r] || 0})</option>)}
               </Select>
            </div>
 
            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[180px]">
               <div className="p-1.5 bg-emerald-50 text-emerald-500 rounded-lg"><CheckCircle2 size={14} /></div>
               <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
-                 <option value="all">Estado MAC</option>
-                 {filterOptions.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                 <option value="all">Estado MAC ({cleanData.length})</option>
+                 {filterOptions.statuses.map(s => <option key={s} value={s}>{s} ({filterOptions.counts.statuses[s] || 0})</option>)}
+              </Select>
+           </div>
+
+           <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[200px]">
+              <div className="p-1.5 bg-slate-50 text-slate-500 rounded-lg"><Target size={14} /></div>
+              <Select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
+                 <option value="all">Proyecto ({cleanData.length})</option>
+                 {metrics.ambitos.map(a => <option key={a} value={a}>{a} ({metrics.ambitoCount[a] || 0})</option>)}
               </Select>
            </div>
 
            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-100 min-w-[160px]">
               <div className="p-1.5 bg-amber-50 text-amber-500 rounded-lg"><Clock size={14} /></div>
               <Select value={slaFilter} onChange={(e) => setSlaFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
-                 <option value="all">SLA Compromiso</option>
-                 {filterOptions.slas.map(s => <option key={s} value={s}>{s}</option>)}
+                 <option value="all">SLA ({cleanData.length})</option>
+                 <option value="En Tiempo">En Tiempo ({filterOptions.counts.slas["En Tiempo"] || 0})</option>
+                 <option value="Atrasado">Atrasado ({filterOptions.counts.slas["Atrasado"] || 0})</option>
               </Select>
            </div>
 
@@ -1788,27 +1812,82 @@ export default function CyberView({ data, title }: Props) {
            )}
         </div>
 
-        <EnterpriseTable 
-          data={filteredData}
-          columns={displayColumnsData}
-          onRowClick={(row) => setSelectedRow(row)}
-          hideHeader={true}
-          onExport={(data) => {
-            const appliedFilters = {
-              'Prestador/Socio': prestadorFilter === 'all' ? 'Todos' : prestadorFilter,
-              'Criticidad': priorityFilter === 'all' ? 'Todas' : priorityFilter,
-              'Responsable': responsableFilter === 'all' ? 'Todos' : responsableFilter,
-              'Estado': statusFilter === 'all' ? 'Todos' : statusFilter,
-              'SLA': slaFilter === 'all' ? 'Todos' : slaFilter
-            };
-            exportToStyledExcel(
-              data,
-              "Reporte_Mando_Y_Control_Filtrado.xlsx",
-              "Reporte Consolidado Ciberseguridad",
-              appliedFilters
-            );
-          }}
-        />
+        {/* Adaptive Table Container with Horizontal Scroll and Drag-to-Scroll */}
+        <div className="relative group">
+           <div className="absolute left-[320px] top-0 bottom-0 w-12 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity" />
+           <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity" />
+           
+           <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 shadow-2xl bg-white">
+              <div 
+                className="overflow-x-auto scrollbar-none md:scrollbar-thin scrollbar-track-slate-50 scrollbar-thumb-slate-200 hover:scrollbar-thumb-slate-300 transition-all cursor-grab active:cursor-grabbing select-none"
+                onMouseDown={(e) => {
+                  const el = e.currentTarget;
+                  const startX = e.pageX - el.offsetLeft;
+                  const scrollLeft = el.scrollLeft;
+                  
+                  const onMouseMove = (e: MouseEvent) => {
+                    const x = e.pageX - el.offsetLeft;
+                    const walk = (x - startX) * 2; // Scroll speed multiplier
+                    el.scrollLeft = scrollLeft - walk;
+                  };
+                  
+                  const onMouseUp = () => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                  };
+                  
+                  document.addEventListener('mousemove', onMouseMove);
+                  document.addEventListener('mouseup', onMouseUp);
+                }}
+              >
+                 <EnterpriseTable 
+                   data={filteredData}
+                   columns={displayColumnsData}
+                   onRowClick={(row) => setSelectedRow(row)}
+                   hideHeader={true}
+                   getRowClassName={(row) => {
+                     const priorityRaw = String(row[keys?.priorityKey || ""] || "").toLowerCase().trim();
+                     if (priorityRaw.includes('crític') || priorityRaw.includes('critica')) {
+                       return 'border-l-4 border-l-rose-700 bg-rose-50/10 shadow-sm';
+                     }
+                     if (priorityRaw.includes('alta') || priorityRaw.includes('high')) {
+                       return 'border-l-4 border-l-orange-500 bg-orange-50/5 shadow-sm';
+                     }
+                     return '';
+                   }}
+                   onExport={(data) => {
+                     const appliedFilters = {
+                       'Prestador/Socio': prestadorFilter === 'all' ? 'Todos' : prestadorFilter,
+                       'Criticidad': priorityFilter === 'all' ? 'Todas' : priorityFilter,
+                       'Responsable': responsableFilter === 'all' ? 'Todos' : responsableFilter,
+                       'Estado': statusFilter === 'all' ? 'Todos' : statusFilter,
+                       'SLA': slaFilter === 'all' ? 'Todos' : slaFilter
+                     };
+                     exportToStyledExcel(
+                       data,
+                       "Reporte_Mando_Y_Control_Filtrado.xlsx",
+                       "Reporte Consolidado Ciberseguridad",
+                       appliedFilters
+                     );
+                   }}
+                 />
+              </div>
+           </div>
+           
+           {/* Adaptive Scroll Cues */}
+           <div className="mt-6 flex flex-col items-center gap-4">
+              <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-full border border-slate-200">
+                 <div className="px-4 py-1.5 bg-white rounded-full shadow-sm flex items-center gap-2">
+                    <ArrowUpRight size={12} className="text-brand-600 rotate-45" />
+                    <span className="text-[9px] font-black uppercase text-slate-900 tracking-widest">Navegación Adaptativa</span>
+                 </div>
+                 <div className="flex items-center gap-1.5 px-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
+                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Arrastra o desplaza para explorar</span>
+                 </div>
+              </div>
+           </div>
+        </div>
       </div>
 
       <CyberVendorDetailModal 

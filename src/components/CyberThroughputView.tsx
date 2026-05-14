@@ -209,7 +209,7 @@ export const CyberThroughputView: React.FC<Props> = ({ data, dateKey, statusKey 
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Objetivo Resiliencia</p>
               </div>
               <h4 className="text-2xl font-black text-slate-900 tracking-tight">
-                {stats.current.resolved >= stats.current.created ? 'Superávit Operativo' : 'Déficit Operativo'}
+                {stats.current.resolved >= stats.current.created ? 'Balance de Gestión' : 'Balance en Seguimiento'}
               </h4>
               <p className="text-xs text-slate-500 mt-2 font-medium">
                 Velocity Ratio: <span className={`font-black ${stats.current.resolved >= stats.current.created ? 'text-emerald-600' : 'text-rose-600'}`}>{Math.round((stats.current.resolved / (stats.current.created || 1)) * 100)}%</span>

@@ -18,6 +18,10 @@ export async function exportToVisual(elementId: string, filename: string, format
     return;
   }
 
+  const now = new Date();
+  const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+  const finalName = `${filename.replace(/\.(png|pdf)$/, '')} - ${timestamp}`;
+
   try {
     console.log(`Generating ${format.toUpperCase()}...`);
 
@@ -37,7 +41,7 @@ export async function exportToVisual(elementId: string, filename: string, format
     });
     
     if (format === 'png') {
-      saveAs(dataUrl, `${filename}.png`);
+      saveAs(dataUrl, `${finalName}.png`);
     } else {
       const pdf = new jsPDF({
         orientation: 'landscape',
@@ -52,7 +56,7 @@ export async function exportToVisual(elementId: string, filename: string, format
 
       pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
       const pdfBlob = pdf.output('blob');
-      saveAs(pdfBlob, `${filename}.pdf`);
+      saveAs(pdfBlob, `${finalName}.pdf`);
     }
     
     console.log(`${format.toUpperCase()} exported successfully`);
@@ -150,7 +154,9 @@ export async function exportStructuredPdf(
     });
   });
 
-  const finalFilename = filename.replace(/\.pdf$/, '') + '.pdf';
+  const now = new Date();
+  const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+  const finalFilename = `${filename.replace(/\.pdf$/, '')} - ${timestamp}.pdf`;
   doc.save(finalFilename);
 }
 
@@ -259,7 +265,9 @@ export async function exportMultiSheetExcel(
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const finalFilename = filename.replace(/\.xls(x)?$/, '') + '.xlsx';
+  const now = new Date();
+  const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+  const finalFilename = `${filename.replace(/\.xls(x)?$/, '')} - ${timestamp}.xlsx`;
   saveAs(blob, finalFilename);
 }
 

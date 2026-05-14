@@ -5,7 +5,7 @@ import {
 import { motion } from 'motion/react';
 import { exportToStyledExcel, exportMultiSheetExcel, exportStructuredPdf } from '../lib/utils';
 import { DetailsModal } from './DetailsModal';
-import { Card, CardHeader, CardContent } from './ui';
+import { Card, CardHeader, CardContent, PremiumCard } from './ui';
 import { isCriticalPriority } from './CyberView';
 import { isResolvedStatus, normalizeMTTRDisplay } from '../lib/excelParser';
 
@@ -26,7 +26,7 @@ interface Props {
 
 type TabType = 'performance' | 'vs_analytics' | 'intelligence';
 
-export default function TeamPerformanceView({ data, title = "Desempeño de Equipo", subtitle = "Centro de mando operativo de clase mundial." }: Props) {
+export default function TeamPerformanceView({ data, title = "Desempeño de Equipo", subtitle = "Centro de mando operativo." }: Props) {
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
   const [showDetails, setShowDetails] = useState(false);
@@ -51,7 +51,11 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
         assignee: findKey(['Responsable', 'Asignado', 'Owner', 'usuario', 'Analista', 'Técnico', 'Soporte', 'Gestor', 'Coordinador']),
         status: findKey(['Estado', 'Status', 'Semaforo', 'Status Final']),
         priority: findKey(['Criticidad', 'Prioridad', 'Priority', 'Severidad']),
-        delay: findKey(['Dias de atraso', 'Atraso', 'Delay', 'Vencimiento'])
+        delay: findKey(['Dias de atraso', 'Atraso', 'Delay', 'Vencimiento']),
+        dateKey: findKey(['Fecha', 'Fecha de Creación', 'Created', 'Date', 'Apertura', 'Fecha Solicitud']),
+        closingDateKey: findKey(['Fecha de Cierre', 'Cierre', 'Closed Date', 'Fecha Solución', 'Finalización']),
+        commitmentDateKey: findKey(['Fecha de Compromiso', 'Compromiso', 'Due Date', 'Vencimiento Estimado']),
+        category: findKey(['ÁMBITO', 'Categoría', 'Clasificación', 'Tipo', 'Area', 'Ambito', 'Modulo'])
       }
     };
   }, [data]);
@@ -59,8 +63,10 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
   const filteredData = useMemo(() => {
     if (!keysInfo) return [];
     return cleanData.filter(row => {
-      const pMatch = priorityFilter === 'all' || String(row[keysInfo.priority]).toLowerCase() === priorityFilter;
-      const aMatch = assigneeFilter === 'all' || String(row[keysInfo.assignee]) === assigneeFilter;
+      const rowPriority = String(row[keysInfo.priority] || 'Media').toLowerCase();
+      const pMatch = priorityFilter === 'all' || rowPriority === priorityFilter;
+      const rowAssignee = String(row[keysInfo.assignee] || 'Sin Asignar');
+      const aMatch = assigneeFilter === 'all' || rowAssignee === assigneeFilter;
       return pMatch && aMatch;
     });
   }, [cleanData, priorityFilter, assigneeFilter, keysInfo]);
@@ -77,6 +83,8 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
     let outOfDate = 0;
     let criticalCount = 0;
     let agingTickets = 0;
+    
+    const THEORETICAL_CAPACITY_PER_MEMBER = 20; // Enterprise standard benchmark
 
     filteredData.forEach(row => {
       total++;
@@ -133,6 +141,10 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
     const activeTeamSize = Object.keys(collaborators).length || 1;
     const avgTasksValue = total / activeTeamSize;
     const avgOpenTasks = (total - resolved) / activeTeamSize;
+    
+    // Enterprise Capacity Metrics
+    const totalCapacity = activeTeamSize * THEORETICAL_CAPACITY_PER_MEMBER;
+    const saturationRate = Math.round((total / totalCapacity) * 100);
 
     // Load Balance Calculation: Higher score = more even distribution
     const tasksPerAssignee = Object.values(collaborators).map(c => c.total);
@@ -211,6 +223,8 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
       radarData,
       teamSize: activeTeamSize,
       imbalancePct,
+      saturationRate,
+      totalCapacity,
       burnoutList: collabList.filter(c => c.isBurnoutRisk).map(c => c.name),
       resolutionRate,
       timeCompliance,
@@ -321,7 +335,7 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
     }
   };
 
-  if (!metrics) return null;
+  // if (!metrics) return null;
 
   return (
     <div id="full-audit-board" className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-1000 font-sans pb-20">
@@ -357,29 +371,91 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
         </div>
       </div>
 
-      {/* Advanced Navigation Tabs */}
-      <div className="flex items-center gap-2 p-2 bg-slate-100 rounded-[2.5rem] w-fit shadow-inner border border-slate-200/50 export-exclude">
-        {[
-          { id: 'performance', icon: <Activity size={16} />, label: 'Resumen Operativo' },
-          { id: 'vs_analytics', icon: <GitCompare size={16} />, label: 'VS Analytics' },
-          { id: 'intelligence', icon: <Presentation size={16} />, label: 'Estrategia Operativa' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setCurrentTab(tab.id as TabType)}
-            className={`flex items-center gap-3 px-8 py-4 rounded-[2rem] text-[10px] font-black uppercase tracking-widest transition-all ${
-              currentTab === tab.id 
-                ? 'bg-white text-brand-600 shadow-xl' 
-                : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
+      {/* Advanced Navigation Tabs & Filters */}
+      <div className="flex flex-col xl:flex-row items-center gap-6 export-exclude">
+        <div className="flex items-center gap-2 p-2 bg-slate-100 rounded-[2.5rem] w-fit shadow-inner border border-slate-200/50">
+          {[
+            { id: 'performance', icon: <Activity size={16} />, label: 'Resumen Operativo' },
+            { id: 'vs_analytics', icon: <GitCompare size={16} />, label: 'VS Analytics' },
+            { id: 'intelligence', icon: <Presentation size={16} />, label: 'Estrategia Operativa' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setCurrentTab(tab.id as TabType);
+                if (tab.id === 'vs_analytics') {
+                  setAssigneeFilter('all');
+                }
+              }}
+              className={`flex items-center gap-3 px-8 py-4 rounded-[2rem] text-[10px] font-black uppercase tracking-widest transition-all ${
+                currentTab === tab.id 
+                  ? 'bg-white text-brand-600 shadow-xl' 
+                  : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 flex-1 justify-end">
+           {currentTab === 'performance' && (
+             <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 min-w-[200px]">
+                <div className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg"><User size={14} /></div>
+                <select 
+                  value={assigneeFilter} 
+                  onChange={(e) => setAssigneeFilter(e.target.value)}
+                  className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0 w-full"
+                >
+                  <option value="all">Filtro Responsable ({cleanData.length})</option>
+                  {Array.from(new Set(cleanData.map(r => String(r[keysInfo?.assignee] || 'Sin Asignar')))).map(a => (
+                    <option key={a} value={a}>{a} ({cleanData.filter(r => String(r[keysInfo?.assignee] || 'Sin Asignar') === a).length})</option>
+                  ))}
+                </select>
+             </div>
+           )}
+
+           {currentTab !== 'vs_analytics' && (
+             <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 min-w-[180px]">
+                <div className="p-1.5 bg-rose-50 text-rose-500 rounded-lg"><ShieldAlert size={14} /></div>
+                <select 
+                  value={priorityFilter} 
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0 w-full"
+                >
+                  <option value="all">Criticidad ({cleanData.length})</option>
+                  {Array.from(new Set(cleanData.map(r => String(r[keysInfo?.priority] || 'Media')))).map((p) => {
+                    const pStr = String(p);
+                    return (
+                      <option key={pStr} value={pStr.toLowerCase()}>
+                        {pStr} ({cleanData.filter(r => String(r[keysInfo?.priority] || 'Media').toLowerCase() === pStr.toLowerCase()).length})
+                      </option>
+                    );
+                  })}
+                </select>
+             </div>
+           )}
+        </div>
       </div>
 
-      {currentTab === 'performance' && (
+      {!metrics ? (
+        <div className="py-20 text-center bg-slate-50/50 rounded-[3rem] border-2 border-dashed border-slate-200">
+           <div className="p-4 bg-white rounded-2xl shadow-sm w-fit mx-auto mb-4 text-slate-400">
+             <Activity size={32} />
+           </div>
+           <h3 className="text-xl font-bold text-slate-900 mb-2">No se encontraron datos</h3>
+           <p className="text-slate-500">Ajusta los filtros para visualizar la auditoría.</p>
+           <button 
+             onClick={() => { setPriorityFilter('all'); setAssigneeFilter('all'); }}
+             className="mt-6 text-[10px] font-black uppercase tracking-widest text-brand-600 hover:underline"
+           >
+             Limpiar Filtros
+           </button>
+        </div>
+      ) : (
+        <>
+          {currentTab === 'performance' && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-12">
           
           <TeamMetricsCards 
@@ -399,56 +475,63 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
                 />
              </div>
 
-             <div className="lg:col-span-8">
-                <Card className="border-0 shadow-2xl rounded-[3.5rem] bg-white border border-slate-100 overflow-hidden h-full">
-                   <CardHeader className="bg-slate-50/30 p-12 border-b border-slate-100 flex justify-between items-center">
+              <div className="lg:col-span-8">
+                <PremiumCard className="border-0 shadow-2xl rounded-[3.5rem] bg-white border border-slate-100 overflow-hidden h-full">
+                   <CardHeader className="bg-slate-50/10 p-12 border-b border-slate-100/50 flex justify-between items-center">
                       <div className="space-y-1 text-left">
-                        <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Benchmarking</p>
-                        <h4 className="text-3xl font-black text-slate-900 tracking-tighter">Comparativa Operativa</h4>
+                        <p className="text-[9px] font-black text-brand-500 uppercase tracking-[0.4em]">Analytics Engine 5.0</p>
+                        <h4 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">Comparativa <br/>de <span className="text-brand-600">Alta</span> Dirección</h4>
                       </div>
-                      <div className="flex items-center gap-4">
-                         <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-4 py-2 rounded-full">Auditoría Individual</span>
+                      <div className="hidden md:flex items-center gap-4">
+                         <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-4 py-2 rounded-full border border-slate-200">Auditoría Individual</span>
                       </div>
                    </CardHeader>
                    <CardContent className="p-0">
-                      <div className="overflow-x-auto text-left">
-                         <table className="w-full">
-                            <thead className="bg-[#fbfcff] border-b border-slate-50">
+                      <div className="overflow-x-auto text-left scrollbar-thin scrollbar-thumb-slate-200">
+                         <table className="w-full border-collapse">
+                            <thead className="bg-[#fbfcff]/60 backdrop-blur-sm sticky top-0 z-10 border-b border-slate-100">
                                <tr>
-                                  <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-slate-400">Responsable</th>
-                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-slate-400">Total</th>
-                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">Score Eff.</th>
-                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">MTTR (d)</th>
-                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-emerald-500">Resuelto</th>
-                                  <th className="px-6 py-6 text-[10px] font-black uppercase tracking-widest text-brand-500">% Cumpl.</th>
-                                  <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Estado</th>
-                               </tr>
+                                  <th className="px-10 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Responsable Operativo</th>
+                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Volumen</th>
+                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-center text-slate-400">Efficiency Score</th>
+                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-center text-slate-400">MTTR (d)</th>
+                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500">Resolved</th>
+                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-brand-500">SLA %</th>
+                                  <th className="px-10 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 text-right">Estado</th>
+                                </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody className="divide-y divide-slate-50 bg-white">
                                {metrics.collabList.map((c, i) => (
-                                  <tr 
+                                  <motion.tr 
                                      key={i} 
+                                     initial={{ opacity: 0, x: -10 }}
+                                     animate={{ opacity: 1, x: 0 }}
+                                     transition={{ delay: i * 0.05 }}
                                      className="hover:bg-slate-50/50 transition-all cursor-pointer group"
                                      onClick={() => setSelectedMember(c)}
                                   >
-                                     <td className="px-10 py-6 font-bold text-slate-800 text-sm">
-                                        <div className="flex items-center gap-4">
-                                           <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black ${String(c.name).includes('Promedio') ? 'bg-slate-100 text-slate-400' : 'bg-brand-50 text-brand-600'}`}>
+                                     <td className="px-10 py-7 font-black text-slate-900 text-sm">
+                                        <div className="flex items-center gap-5">
+                                           <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-[10px] font-black shadow-sm border border-white transition-transform group-hover:scale-110 ${String(c.name).includes('Promedio') ? 'bg-slate-100 text-slate-400' : 'bg-brand-600 text-white shadow-brand-200'}`}>
                                               {String(c.name).charAt(0)}
                                            </div>
-                                           <span className="group-hover:text-brand-600 transition-colors uppercase tracking-tight">{c.name}</span>
-                                           {c.isBurnoutRisk && <Flame size={14} className="text-rose-500 animate-pulse" />}
+                                           <div className="flex flex-col">
+                                              <span className="group-hover:text-brand-600 transition-colors uppercase tracking-tight font-black">{c.name}</span>
+                                              {c.isBurnoutRisk && <span className="text-[8px] text-rose-500 font-black uppercase tracking-widest flex items-center gap-1 mt-0.5"><Flame size={10} className="animate-pulse" /> Riesgo de Fatiga</span>}
+                                           </div>
                                         </div>
                                      </td>
-                                     <td className="px-6 py-6 font-mono text-slate-600 font-bold">{c.total}</td>
-                                     <td className="px-6 py-6 text-center">
-                                        <span className="text-sm font-black text-brand-600">{c.efficiencyScore}</span>
+                                     <td className="px-6 py-7 font-mono text-slate-400 font-bold text-sm tracking-tight">{c.total}</td>
+                                     <td className="px-6 py-7 text-center">
+                                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full border-4 border-slate-50 bg-white shadow-lg shadow-slate-100">
+                                          <span className="text-sm font-black text-brand-600">{c.efficiencyScore}</span>
+                                        </div>
                                      </td>
-                                     <td className="px-6 py-6 text-center font-mono text-[11px] font-bold text-slate-500 uppercase tracking-tighter">{c.mttrDisplay}</td>
-                                     <td className="px-6 py-6 font-mono text-emerald-600 font-bold">{c.resolved}</td>
-                                     <td className="px-6 py-6 font-mono text-brand-600 font-black">{c.compliance}%</td>
-                                     <td className="px-10 py-6 text-right">
-                                        <span className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border ${
+                                     <td className="px-6 py-7 text-center font-mono text-[11px] font-bold text-slate-500 uppercase tracking-tighter">{c.mttrDisplay}</td>
+                                     <td className="px-6 py-7 font-mono text-emerald-600 font-black text-sm">{c.resolved}</td>
+                                     <td className="px-6 py-7 font-mono text-brand-600 font-black text-sm">{c.compliance}%</td>
+                                     <td className="px-10 py-7 text-right">
+                                        <span className={`px-5 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-[0.1em] border shadow-sm ${
                                            c.estado.includes('Elite') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
                                            c.estado.includes('Óptimo') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 
                                            'bg-rose-50 text-rose-600 border-rose-100'
@@ -456,13 +539,13 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
                                            {c.estado}
                                         </span>
                                      </td>
-                                  </tr>
+                                  </motion.tr>
                                ))}
                             </tbody>
                          </table>
                       </div>
                    </CardContent>
-                </Card>
+                </PremiumCard>
              </div>
           </div>
 
@@ -539,11 +622,13 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
       )}
 
       {currentTab === 'vs_analytics' && (
-        <VSPerformanceAnalytics metrics={metrics} allData={filteredData} keysInfo={keysInfo} />
+        <VSPerformanceAnalytics key={currentTab} metrics={metrics} allData={filteredData} keysInfo={keysInfo} />
       )}
 
       {currentTab === 'intelligence' && (
         <TeamOperationalAnalytics metrics={metrics} />
+      )}
+        </>
       )}
 
       <AnalyticalBreakdownPanel 
@@ -551,7 +636,7 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
         onClose={() => setActiveMetric(null)}
         metricType={activeMetric}
         metrics={metrics}
-        data={filteredData}
+        data={filteredData || []}
       />
 
       <IndividualDeepDiveModal 
@@ -559,7 +644,7 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
         onClose={() => setSelectedMember(null)} 
       />
 
-      <DetailsModal isOpen={showDetails} onClose={() => setShowDetails(false)} data={filteredData} title={title} />
+      <DetailsModal isOpen={showDetails} onClose={() => setShowDetails(false)} data={filteredData || []} title={title} />
     </div>
   );
 }

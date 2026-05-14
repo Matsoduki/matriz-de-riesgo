@@ -68,11 +68,11 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
         };
       case 'imbalance':
         return {
-          title: "Balance de Carga Exponencial",
+          title: "Backlog Balance & Equidad",
           icon: <Scale className="text-indigo-500" />,
           color: "indigo",
-          definition: "Distribución de responsabilidades y esfuerzo entre los miembros del equipo. Mide la equidad operacional.",
-          calculation: "Imbalance = (Max Load - Avg Load) / Avg Load. Un porcentaje > 30% indica concentración de riesgo.",
+          definition: "Análisis del equilibrio de carga operativa. El 'Backlog Balance' mide el desvío entre la carga máxima individual y el promedio del equipo, identificando cuellos de botella en personas clave.",
+          calculation: "Backlog Balance = ((Max Items Abiertos - Avg Items Abiertos) / Avg Items) * 100. Un valor elevado (>30%) indica riesgo de silos de conocimiento.",
           factors: [
             "Especialización excesiva en tecnologías críticas",
             "Falta de rotación de tickets complejos",
@@ -81,7 +81,7 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
           ],
           recommendation: "Realizar Cross-training de backups y ajustar algoritmos de asignación dinámica.",
           stats: [
-            { label: "Desbalance", val: `${metrics.imbalancePct}%`, sub: "Variación" },
+            { label: "Desbalance", val: `${metrics.imbalancePct}%`, sub: "Backlog Balance" },
             { label: "Team Size", val: metrics.teamSize, sub: "Analistas" }
           ]
         };

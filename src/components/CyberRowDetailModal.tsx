@@ -241,15 +241,6 @@ export const CyberRowDetailModal: React.FC<Props> = ({
                     </div>
                  </div>
                  <div className="flex items-center gap-4">
-                    {row["ARCHIVOS ADJUNTOS\n(URL ONE DRIVE)"] && row["ARCHIVOS ADJUNTOS\n(URL ONE DRIVE)"] !== "-" && (
-                       <button 
-                          onClick={() => window.open(row["ARCHIVOS ADJUNTOS\n(URL ONE DRIVE)"], '_blank')}
-                          className="px-8 py-5 bg-white border border-slate-200 text-slate-900 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-3 group"
-                       >
-                          <ExternalLink size={16} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                          Ver Evidencias
-                       </button>
-                    )}
                     <button 
                       onClick={onClose}
                       className="px-12 py-5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black hover:shadow-2xl transition-all active:scale-95 flex items-center gap-3 group"

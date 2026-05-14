@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Input, Select, Modal, Button } from './ui';
 import { findColumnKey, formatExcelDate } from '../lib/excelParser';
 import { exportToStyledExcel } from '../lib/utils';
-import { Search, Activity, Database, Radio, CheckCircle, Clock, Filter, AlertCircle, Layout, Download, List, FileSearch, ShieldAlert, Zap, ShieldCheck, Cpu, Network, Radar } from 'lucide-react';
+import { Search, Activity, Database, Radio, CheckCircle, Clock, Filter, AlertCircle, Layout, Download, List, FileSearch, ShieldAlert, Zap, ShieldCheck, Cpu, Network, Radar, Target } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
 const COLORS = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#0ea5e9', '#38bdf8', '#7dd3fc'];
@@ -233,10 +233,6 @@ export default function SensorView({ data, isOverview }: Props) {
           </div>
           
           <div className="flex justify-between items-start mb-12">
-            <div>
-               <h3 className="text-2xl font-black text-slate-800 tracking-tighter">Análisis Operativo</h3>
-               <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Soporte Técnico & Performance del Sistema</p>
-            </div>
             <div className="px-4 py-2 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center gap-2">
                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Live Flow</span>
@@ -316,8 +312,8 @@ export default function SensorView({ data, isOverview }: Props) {
   return (
     <div className="space-y-10">
       {/* Historical Context Header & Analysis */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-         <Card className="lg:col-span-3 border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] overflow-hidden bg-white group">
+      <div className="grid grid-cols-1 gap-6">
+         <Card className="border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] overflow-hidden bg-white group">
             <CardHeader className="p-8 border-b border-slate-50 bg-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-5">
@@ -358,33 +354,6 @@ export default function SensorView({ data, isOverview }: Props) {
                     />
                  </BarChart>
                </ResponsiveContainer>
-            </CardContent>
-         </Card>
-
-         <Card className="border-0 shadow-2xl shadow-slate-200/50 rounded-[2.5rem] bg-white border border-slate-100 overflow-hidden">
-            <CardHeader className="p-8 pb-4">
-              <CardTitle className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 text-center">Resumen de Gestión</CardTitle>
-            </CardHeader>
-            <CardContent className="p-8 pt-2 space-y-8">
-              <div className="space-y-6">
-                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 text-center">Estado de Soporte</p>
-                  <p className="text-xs text-slate-600 leading-relaxed font-semibold text-center">
-                    Rendimiento global dentro de los parámetros de SLA corporativo.
-                  </p>
-                </div>
-                
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Registros Totales</span>
-                     <span className="text-2xl font-black text-slate-900">{metrics?.total}</span>
-                  </div>
-                  <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tasa Resolución</span>
-                     <span className="text-2xl font-black text-emerald-600">{metrics.total > 0 ? ((metrics.closed / metrics.total) * 100).toFixed(1) : 0}%</span>
-                  </div>
-                </div>
-              </div>
             </CardContent>
          </Card>
       </div>
@@ -509,9 +478,9 @@ export default function SensorView({ data, isOverview }: Props) {
           <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 min-w-[200px]">
               <div className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg"><Filter size={14} /></div>
               <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border-0 bg-transparent text-[10px] font-black uppercase tracking-widest focus:ring-0">
-                 <option value="all">Todos los Estados</option>
-                 <option value="closed">Cerrados / Resueltos</option>
-                 <option value="open">Pendientes / Abiertos</option>
+                 <option value="all">Todos los Estados ({globalCounts.all})</option>
+                 <option value="closed">Cerrados / Resueltos ({globalCounts.closed})</option>
+                 <option value="open">Pendientes / Abiertos ({globalCounts.open})</option>
               </Select>
            </div>
 

@@ -17,14 +17,17 @@ import {
   FileSearch,
   Target,
   TrendingUp,
-  Shield
+  Shield,
+  Zap,
+  Info
 } from 'lucide-react';
-import { Button, Card, CardContent } from './ui';
+import { Button, Card, CardContent, PremiumCard } from './ui';
 import JiraView from './JiraView';
 import SensorView from './SensorView';
 import CyberView from './CyberView';
 import { GapFinderView } from './GapFinderView';
 import TeamPerformanceView from './TeamPerformanceView';
+import { KpiGlossaryModal } from './KpiGlossaryModal';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { SCOPE_MAPPING } from '../constants/cyberCatalog';
@@ -99,26 +102,47 @@ const StatCard = ({ title, value, subtitle, subvalue, icon: Icon, color, delay =
 
 export default function ExecutiveDashboard({ data, onReset }: Props) {
   const [currentView, setCurrentView] = useState<ViewType>('overview');
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
 
   const globalMetrics = React.useMemo(() => {
-        const sensor = data.sensor || [];
+    const sensor = data.sensor || [];
     const mandoYControl = data.mandoYControl || [];
     const jira2025 = data.jira2025 || [];
     const jira2026 = data.jira2026 || [];
 
-    const totalItems = jira2025.length + sensor.length + mandoYControl.length + jira2026.length;
-    
-    // Better critical logic (handles dashes and N/A correctly)
+    const sensorCount = sensor.length;
+    const cyberCount = mandoYControl.length;
+    const jira2025Count = jira2025.length;
+    const jira2026Count = jira2026.length;
+
     const criticalSecurity = mandoYControl.filter(m => {
       const p = String(m.Prioridad || m.Criticidad || m['CRITICIDAD'] || '').toLowerCase().trim();
       if (p === '-' || p === '' || p === 'n/a' || p === 'no aplica') return false;
       return (p.includes('alta') || p.includes('criti') || p.includes('high')) && !p.includes('no critico') && !p.includes('no crítico');
     }).length;
 
-    // Detect Governance Gaps for sidebar alert
+    const sensorAlerts = sensor.filter(s => {
+      const sla = String(s['SLA Status'] || s['semaforo'] || '').toLowerCase();
+      return sla.includes('fuera') || sla.includes('atrasado') || sla.includes('vencido');
+    }).length;
+
+    const jiraAlerts = jira2025.filter(j => {
+      const status = String(j.Status || '').toLowerCase();
+      const isDone = status.match(/done|resuelto|cerrado|closed|completado/);
+      const isBloked = status.includes('blocked') || status.includes('bloqueado');
+      return !isDone && isBloked;
+    }).length;
+
+    const alerts = [
+      { type: 'cyber', count: criticalSecurity, label: 'Riesgos Críticos', severity: 'high' },
+      { type: 'sensor', count: sensorAlerts, label: 'Tickets Atrasados', severity: 'medium' },
+      { type: 'jira', count: jiraAlerts, label: 'Items Bloqueados', severity: 'low' },
+    ].filter(a => a.count > 0);
+
+    const totalItems = jira2025.length + sensor.length + mandoYControl.length + jira2026.length;
+    
     const governanceGapsCount = mandoYControl.filter(m => {
       const project = String(m['PROYECTO O TAREA'] || m['Proyecto'] || m['Tarea'] || '').trim().toLowerCase();
-      // Skip if it's just a dash or empty
       if (!project || project === '-' || project === 'n/a') return false;
       
       let mapped = false;
@@ -131,7 +155,6 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
       return !mapped;
     }).length;
 
-    // Governance coverage %
     const validMandoItems = mandoYControl.filter(m => {
       const p = String(m['PROYECTO O TAREA'] || m['Proyecto'] || m['Tarea'] || '').trim();
       return p && p !== '-';
@@ -156,14 +179,26 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
     const resolvedSensor = sensor.filter(s => String(s.Status || '').toLowerCase().match(/cerrado|resuelto|done|closed|completado/)).length;
     const weeklyPerformance = {
       resolved: Math.max(resolvedSensor, Math.round(resolvedSensor / 4)),
-      overdue: sensor.filter(s => {
-        const sla = String(s['SLA Status'] || s['semaforo'] || '').toLowerCase();
-        return sla.includes('fuera') || sla.includes('atrasado') || sla.includes('vencido');
-      }).length,
+      overdue: sensorAlerts,
       compliance: (resolvedSensor / (sensor.length || 1)) * 100
     };
 
-    return { totalItems, criticalSecurity, globalHealthIndex, jira2026Metrics, weeklyPerformance, governanceGaps: governanceGapsCount, governanceCoverage };
+    return { 
+      totalItems, 
+      criticalSecurity, 
+      globalHealthIndex, 
+      jira2026Metrics, 
+      weeklyPerformance, 
+      governanceGaps: governanceGapsCount, 
+      governanceCoverage,
+      alerts,
+      counts: {
+        sensor: sensorCount,
+        cyber: cyberCount,
+        jira2025: jira2025Count,
+        jira2026: jira2026Count
+      }
+    };
   }, [data]);
 
   const handleExport = () => {
@@ -202,7 +237,6 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
 
   return (
     <div className="flex h-screen w-full bg-slate-50 text-slate-900 overflow-hidden font-sans">
-      {/* Sidebar */}
       <aside className="w-64 border-r border-slate-200 bg-white flex flex-col hide-scrollbar relative z-30">
         <div className="p-8">
           <h1 className="text-xl font-black tracking-tight text-slate-900 flex items-center gap-2">
@@ -228,13 +262,13 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           </div>
           <NavItem 
             icon={<Activity size={18} />} 
-            label="Portfolio Seguimiento" 
+            label={`Portfolio (${globalMetrics.counts.jira2025})`} 
             isActive={currentView === 'jira2025'} 
             onClick={() => setCurrentView('jira2025')} 
           />
           <NavItem 
             icon={<Target size={18} />} 
-            label="Iniciativas 2026" 
+            label={`Iniciativas 2026 (${globalMetrics.counts.jira2026})`} 
             isActive={currentView === 'jira2026'} 
             onClick={() => setCurrentView('jira2026')} 
           />
@@ -249,7 +283,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           </div>
           <NavItem 
             icon={<Activity size={18} />} 
-            label="Soporte Técnico" 
+            label={`Soporte Técnico (${globalMetrics.counts.sensor})`} 
             isActive={currentView === 'sensor'} 
             onClick={() => setCurrentView('sensor')} 
           />
@@ -261,7 +295,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           />
           <NavItem 
             icon={<ShieldAlert size={18} />} 
-            label="Matriz MAC (Ciberseguridad)" 
+            label={`Matriz MAC (${globalMetrics.counts.cyber})`} 
             isActive={currentView === 'mandoYControl'} 
             onClick={() => setCurrentView('mandoYControl')} 
             alert={globalMetrics.criticalSecurity > 0}
@@ -293,7 +327,6 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-auto bg-[#FBFBFC] relative">
         <header className="sticky top-0 z-20 flex h-20 items-center justify-between px-10 border-b border-slate-200/60 bg-white/70 backdrop-blur-xl">
           <div className="flex flex-col">
@@ -315,6 +348,13 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           </div>
           
           <div className="flex items-center gap-6">
+            <button 
+              onClick={() => setIsGlossaryOpen(true)}
+              className="h-10 px-6 flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-900 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-sm group"
+            >
+               <Info size={14} className="text-brand-500 group-hover:scale-110 transition-transform" />
+               Glosario Técnico
+            </button>
             <div className="flex items-center gap-4 bg-slate-100/50 p-1 rounded-2xl border border-slate-200/40">
                <div className="px-4 py-2 bg-white rounded-xl shadow-sm text-xs font-bold text-slate-700 flex items-center gap-2">
                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -338,120 +378,157 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
             >
               {currentView === 'overview' && (
                 <div className="space-y-12 pb-20">
-                  {/* Strategic Header */}
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-                    <div className="md:col-span-12 xl:col-span-5">
-                      <Card className="h-full border-0 shadow-2xl shadow-slate-200/50 bg-white text-slate-900 overflow-hidden relative group rounded-[3rem] border border-slate-100">
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-50/50 via-transparent to-transparent z-0" />
-                        <div className="absolute -right-10 -bottom-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-[2s] z-0">
-                          <Activity size={320} />
+                  <div className="flex flex-col gap-8">
+                    {globalMetrics.alerts.length > 0 && (
+                      <motion.div 
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center gap-4 bg-rose-50 border border-rose-100 p-4 rounded-[2rem] overflow-hidden"
+                      >
+                        <div className="flex items-center gap-2 px-4 py-1.5 bg-rose-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest shrink-0">
+                          <AlertCircle size={14} />
+                          Atención Inmediata
                         </div>
-                        <CardContent className="p-14 relative z-10 flex flex-col h-full">
-                          <div className="flex items-center gap-4 mb-12">
-                             <div className="h-1.5 w-12 bg-slate-900 rounded-full" />
-                             <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">Dashboard de Control Operativo</span>
-                          </div>
-                          
-                          <div className="flex flex-col mb-12">
-                            <div className="flex items-baseline gap-4">
-                              <span className="text-[120px] font-black tracking-tighter text-slate-900 leading-none">{globalMetrics.globalHealthIndex}<span className="text-slate-300">%</span></span>
+                        <div className="flex-1 flex gap-12 animate-scroll-text whitespace-nowrap overflow-hidden pr-20">
+                          {globalMetrics.alerts.map((alert, idx) => (
+                            <div key={idx} className="flex items-center gap-3 text-rose-700 text-xs font-bold uppercase tracking-tight">
+                              <div className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                              {alert.count} {alert.label} Detectados
                             </div>
-                            <p className="text-lg font-bold text-slate-500 mt-4 max-w-xs leading-tight">Índice Consolidado de Desempeño y Resiliencia del Servicio.</p>
-                          </div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
 
-                          <div className="mt-auto space-y-6">
-                             <div className="flex justify-between items-end">
-                                <div className="space-y-1">
-                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Estado del Sistema</p>
-                                   <p className="text-xl font-black text-slate-900">OPERACIÓN ÓPTIMA</p>
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                      <div className="xl:col-span-8">
+                        <PremiumCard gradient className="h-full border border-slate-100/50">
+                          <CardContent className="p-10 md:p-14 relative z-10">
+                            <div className="flex flex-col md:flex-row justify-between gap-12">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-4 mb-10">
+                                  <div className="h-1.5 w-10 bg-brand-600 rounded-full shadow-[0_0_12px_rgba(99,102,241,0.4)]" />
+                                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">MAC Core Intelligence</span>
                                 </div>
-                                <div className="text-right">
-                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Variación Semanal</p>
-                                   <p className="text-lg font-black text-emerald-600">+2.4%</p>
+                                <h1 className="text-6xl font-black text-slate-900 tracking-tighter leading-[0.85] uppercase mb-10">
+                                  Postura <br/><span className="text-brand-600">Estratégica</span> <br/>Unificada
+                                </h1>
+                                <div className="flex items-center gap-10 mb-12 bg-white/40 backdrop-blur-md p-6 rounded-3xl border border-white/60 shadow-sm w-fit">
+                                  <div className="flex flex-col">
+                                    <span className="text-4xl font-black text-brand-600 leading-none">{globalMetrics.globalHealthIndex}%</span>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2 px-1">Integridad MAC</span>
+                                  </div>
+                                  <div className="h-10 w-[1px] bg-slate-200" />
+                                  <div className="flex flex-col">
+                                    <span className="text-4xl font-black text-slate-900 leading-none">{globalMetrics.totalItems}</span>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2 px-1">Registros Activos</span>
+                                  </div>
                                 </div>
-                             </div>
-                             <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden p-1 border border-slate-200 shadow-inner">
-                                <motion.div 
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${globalMetrics.globalHealthIndex}%` }}
-                                  transition={{ duration: 2, ease: "circOut" }}
-                                  className="h-full bg-slate-900 rounded-full" 
-                                />
-                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                                <p className="text-slate-500 text-base font-bold leading-tight max-w-md">
+                                  Visualización táctica de activos críticos y cumplimiento normativo. Control en tiempo real del ecosistema tecnológico corporativo.
+                                </p>
+                              </div>
+
+                              <div className="w-full md:w-[320px] flex flex-col gap-8">
+                                <PremiumCard className="bg-slate-950 p-8 rounded-[2.5rem] border-0">
+                                   <div className="absolute -top-4 -right-4 p-8 opacity-10 group-hover:scale-125 transition-transform duration-700">
+                                     <Zap size={100} className="text-brand-400" />
+                                   </div>
+                                   <div className="relative z-10">
+                                     <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.25em] mb-4">Throughput Semanal</p>
+                                     <div className="flex items-baseline gap-2 mb-2">
+                                       <span className="text-5xl font-black text-white">{Math.round(globalMetrics.weeklyPerformance.compliance)}%</span>
+                                       <span className="text-brand-400 text-[10px] font-black flex items-center tracking-widest uppercase"><ArrowUpRight size={12} /> Optimal</span>
+                                     </div>
+                                     <div className="h-1 w-full bg-white/10 rounded-full mt-6 overflow-hidden">
+                                       <motion.div 
+                                         initial={{ width: 0 }}
+                                         animate={{ width: `${globalMetrics.weeklyPerformance.compliance}%` }}
+                                         className="h-full bg-brand-500 rounded-full shadow-[0_0_20px_rgba(99,102,241,1)]"
+                                       />
+                                     </div>
+                                   </div>
+                                </PremiumCard>
+
+                                <div className="p-8 rounded-[2.5rem] bg-white border border-slate-100 shadow-sm flex flex-col justify-between group transition-all duration-300 hover:border-brand-200 hover:shadow-lg">
+                                   <div>
+                                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Estado de Red</p>
+                                     <div className="text-2xl font-black text-slate-900 tracking-tight leading-none group-hover:text-brand-600 transition-colors">
+                                       {globalMetrics.weeklyPerformance.compliance > 90 ? 'Estructura Resiliente' : 'Flujo Estándar'}
+                                     </div>
+                                   </div>
+                                   <div className="flex items-center gap-2 mt-6 pt-4 border-t border-slate-50">
+                                     <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Latencia Zero-Trust</span>
+                                   </div>
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </PremiumCard>
+                      </div>
+
+                      <div className="xl:col-span-4 grid grid-cols-1 gap-8">
+                        <StatCard 
+                           title="Riesgos Ciberseguridad"
+                           value={globalMetrics.criticalSecurity}
+                           subvalue={globalMetrics.criticalSecurity > 5 ? "Crítico" : "Controlado"}
+                           subtitle="Detecciones de Alta Prioridad"
+                           icon={ShieldAlert}
+                           color={globalMetrics.criticalSecurity > 5 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}
+                           delay={0.1}
+                        />
+                        <StatCard 
+                           title="Proyectos Activos"
+                           value={globalMetrics.jira2026Metrics.active + globalMetrics.counts.jira2025}
+                           subvalue={`${globalMetrics.jira2026Metrics.completed} Ready`}
+                           subtitle="Portfolio & Roadmaps"
+                           icon={Activity}
+                           color="bg-brand-50 text-brand-600"
+                           delay={0.2}
+                        />
+                        <StatCard 
+                           title="Support Flow"
+                           value={globalMetrics.counts.sensor}
+                           subvalue={globalMetrics.weeklyPerformance.overdue > 0 ? `${globalMetrics.weeklyPerformance.overdue} Atrasados` : "On Time"}
+                           subtitle="Leads de Soporte Técnico"
+                           icon={Users}
+                           color={globalMetrics.weeklyPerformance.overdue > 0 ? "bg-amber-50 text-amber-600" : "bg-indigo-50 text-indigo-600"}
+                           delay={0.3}
+                        />
+                      </div>
                     </div>
 
-                    <div className="md:col-span-12 xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-8">
-                       <StatCard 
-                          title="Integridad Operativa"
-                          value={`${globalMetrics.globalHealthIndex}%`}
-                          subvalue="+1.2%"
-                          subtitle="Score Semanal"
-                          icon={Activity}
-                          color="bg-brand-50 text-brand-600"
-                          delay={0.1}
-                       />
-                       <StatCard 
-                          title="Concentración de Riesgo"
-                          value={globalMetrics.criticalSecurity}
-                          subvalue={globalMetrics.criticalSecurity > 5 ? "Crítico" : "Bajo"}
-                          subtitle="Alerta Temprana"
-                          icon={ShieldAlert}
-                          color="bg-rose-50 text-rose-600"
-                          delay={0.2}
-                       />
-                       <StatCard 
-                          title="Coverage Estratégico"
-                          value={`${globalMetrics.governanceCoverage}%`}
-                          subvalue={globalMetrics.governanceGaps > 0 ? `${globalMetrics.governanceGaps} Gaps` : "Total"}
-                          subtitle="Mapeo de Control"
-                          icon={Target}
-                          color="bg-emerald-50 text-emerald-600"
-                          delay={0.3}
-                       />
-                       <StatCard 
-                          title="Iniciativas 2026"
-                          value={globalMetrics.jira2026Metrics.total}
-                          subvalue={`${globalMetrics.jira2026Metrics.completed} Completadas`}
-                          subtitle="Avance Hoja de Ruta"
-                          icon={TrendingUp}
-                          color="bg-indigo-50 text-indigo-600"
-                          delay={0.4}
-                       />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-                    <div className="lg:col-span-7 space-y-8">
-                       <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                      <div className="lg:col-span-7 space-y-8">
+                        <div className="flex items-center justify-between pb-4 border-b border-slate-200">
                           <div className="flex items-center gap-4">
-                             <div className="h-2 w-2 rounded-full bg-brand-600 animate-pulse shadow-[0_0_10px_#6366f1]" />
-                             <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Portfolio Analytics</h4>
+                            <div className="h-2 w-2 rounded-full bg-brand-600 animate-pulse shadow-[0_0_10px_#6366f1]" />
+                            <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Detalle Portfolio 2025</h4>
                           </div>
                           <Button variant="ghost" size="sm" className="text-[10px] font-black text-brand-600 uppercase tracking-widest hover:bg-brand-50 rounded-xl px-4 py-2" onClick={() => setCurrentView('jira2025')}>
-                             Expandir Vista <ArrowUpRight size={14} className="ml-2" />
+                            Vista Completa <ArrowUpRight size={14} className="ml-2" />
                           </Button>
-                       </div>
-                       <Card className="border-0 shadow-2xl rounded-[3rem] overflow-hidden bg-white">
+                        </div>
+                        <Card className="border-0 shadow-2xl rounded-[3rem] overflow-hidden bg-white">
                           <JiraView data={data.jira2025} title="Portfolio Oversight" isOverview maxYear={2025} />
-                       </Card>
-                    </div>
+                        </Card>
+                      </div>
 
-                    <div className="lg:col-span-5 space-y-8">
-                       <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+                      <div className="lg:col-span-5 space-y-8">
+                        <div className="flex items-center justify-between pb-4 border-b border-slate-200">
                           <div className="flex items-center gap-4">
-                             <div className="h-2 w-2 rounded-full bg-emerald-600 animate-pulse shadow-[0_0_10px_#10b981]" />
-                             <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Continuidad & SLAs</h4>
+                            <div className="h-2 w-2 rounded-full bg-emerald-600 animate-pulse shadow-[0_0_10px_#10b981]" />
+                            <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Auditoría de Soporte</h4>
                           </div>
                           <Button variant="ghost" size="sm" className="text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:bg-emerald-50 rounded-xl px-4 py-2" onClick={() => setCurrentView('sensor')}>
-                             Auditar Leads <ArrowUpRight size={14} className="ml-2" />
+                            Panel Operativo <ArrowUpRight size={14} className="ml-2" />
                           </Button>
-                       </div>
-                       <Card className="border-0 shadow-2xl rounded-[3rem] overflow-hidden bg-white">
+                        </div>
+                        <Card className="border-0 shadow-2xl rounded-[3rem] overflow-hidden bg-white">
                           <SensorView data={data.sensor} isOverview />
-                       </Card>
+                        </Card>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -462,13 +539,15 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
               {currentView === 'teamInitiatives' && <TeamPerformanceView data={data.jira2026} title="Desempeño Iniciativas 2026" subtitle="Análisis de ejecución y efectividad del equipo TI en proyectos estratégicos (Tickets Jira)." />}
               {currentView === 'sensor' && <SensorView data={data.sensor} />}
               {currentView === 'teamSupport' && <TeamPerformanceView data={data.sensor} title="Desempeño Soporte Técnico" subtitle="Auditoría de resolución de tickets, atención al usuario y cumplimiento de SLA operativo." />}
-              {currentView === 'mandoYControl' && <CyberView data={data.mandoYControl || []} title="Cumplimiento & Riesgos" />}
+              {currentView === 'mandoYControl' && <CyberView data={data.mandoYControl || []} title="Cumplimiento & Riesgos" globalMetrics={globalMetrics} />}
               {currentView === 'gapFinder' && <GapFinderView data={data.mandoYControl || []} />}
               {currentView === 'teamPerformance' && <TeamPerformanceView data={data.mandoYControl || []} title="Productividad Ciberseguridad" subtitle="Auditoría de velocidad y gestión del equipo ante vulnerabilidades y cumplimiento." />}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
+
+      <KpiGlossaryModal isOpen={isGlossaryOpen} onClose={() => setIsGlossaryOpen(false)} />
     </div>
   );
 }

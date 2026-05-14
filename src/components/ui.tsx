@@ -14,12 +14,17 @@ export const PremiumCard = React.forwardRef<HTMLDivElement, React.HTMLAttributes
     <div 
       ref={ref} 
       className={cn(
-        "rounded-3xl border border-white/20 bg-white/80 backdrop-blur-xl text-slate-950 shadow-2xl shadow-slate-200/40 relative overflow-hidden group",
-        gradient && "bg-gradient-to-br from-white to-slate-50/50",
+        "rounded-[2.5rem] border border-white/20 bg-white/70 backdrop-blur-3xl text-slate-950 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.06)] relative overflow-hidden group transition-all duration-500 hover:shadow-[0_48px_80px_-16px_rgba(0,0,0,0.1)] hover:-translate-y-1 hover:border-slate-200/50",
+        gradient && "bg-gradient-to-br from-white via-white to-slate-50/30",
         className
       )} 
       {...props} 
-    />
+    >
+      <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+      <div className="relative z-10 h-full">
+        {props.children}
+      </div>
+    </div>
   )
 )
 PremiumCard.displayName = "PremiumCard"

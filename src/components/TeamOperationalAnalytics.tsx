@@ -87,61 +87,7 @@ export const TeamOperationalAnalytics: React.FC<Props> = ({ metrics }) => {
 
   return (
     <div className="space-y-12 pb-20">
-      {/* Strategic Header Panel */}
-      <PremiumCard className="p-12 border-0 bg-slate-900 overflow-hidden relative group">
-        <div className="absolute top-0 right-0 p-20 opacity-10 group-hover:scale-110 transition-transform duration-1000">
-           <Activity size={300} className="text-brand-400" />
-        </div>
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-           <div className="lg:col-span-7 space-y-8">
-              <div className="flex items-center gap-4">
-                 <div className="h-1 w-12 bg-brand-500 rounded-full" />
-                 <span className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-300">Motor de Análisis Ejecutivo</span>
-              </div>
-              <h2 className="text-5xl font-black text-white tracking-tight leading-none uppercase">Análisis Operativo</h2>
-              <p className="text-lg font-medium text-slate-400 max-w-xl leading-relaxed">
-                 Análisis heurístico de performance, riesgos de capital humano y salud estructural del servicio. Transformamos logs operativos en decisiones estratégicas.
-              </p>
-              <div className="flex flex-wrap gap-4 pt-4">
-                 <div className="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-md">
-                    <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Certeza de Auditoría</p>
-                    <p className="text-xl font-black text-white">96.4<span className="text-brand-500">%</span></p>
-                 </div>
-                 <div className="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-md">
-                    <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Métricas Escaneadas</p>
-                    <p className="text-xl font-black text-white">12,480<span className="text-brand-500">+</span></p>
-                 </div>
-                 <div className="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-md">
-                    <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Estado de Auditoría</p>
-                    <p className="text-xl font-black text-emerald-400 flex items-center gap-2">Certificado <ShieldCheck size={18} /></p>
-                 </div>
-              </div>
-           </div>
-           
-           <div className="lg:col-span-5 grid grid-cols-2 gap-4">
-              <div className="p-6 bg-white/5 border border-white/5 rounded-3xl group-hover:bg-brand-500/10 transition-colors">
-                 <BarChart3 size={24} className="text-brand-400 mb-4" />
-                 <h4 className="text-sm font-bold text-white mb-1">Análisis de Pareto</h4>
-                 <p className="text-[10px] text-slate-500 font-medium">80% de impacto generado por 20% de iniciativas clave.</p>
-              </div>
-              <div className="p-6 bg-white/5 border border-white/5 rounded-3xl group-hover:bg-rose-500/10 transition-colors">
-                 <Search size={24} className="text-rose-400 mb-4" />
-                 <h4 className="text-sm font-bold text-white mb-1">Detección de Brechas</h4>
-                 <p className="text-[10px] text-slate-500 font-medium">Identificación de riesgos no clasificados en el backlog.</p>
-              </div>
-              <div className="p-6 bg-white/5 border border-white/5 rounded-3xl group-hover:bg-emerald-500/10 transition-colors">
-                 <LineChart size={24} className="text-emerald-400 mb-4" />
-                 <h4 className="text-sm font-bold text-white mb-1">Previsión Cuarta</h4>
-                 <p className="text-[10px] text-slate-500 font-medium">Tendencias de resolución proyectadas a 30 días.</p>
-              </div>
-              <div className="p-6 bg-white/5 border border-white/5 rounded-3xl group-hover:bg-indigo-500/10 transition-colors">
-                 <Users size={24} className="text-indigo-400 mb-4" />
-                 <h4 className="text-sm font-bold text-white mb-1">Network Depth</h4>
-                 <p className="text-[10px] text-slate-500 font-medium">Análisis de interdependencia y redundancia de equipo.</p>
-              </div>
-           </div>
-        </div>
-      </PremiumCard>
+
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         {insights.map((insight, i) => (

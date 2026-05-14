@@ -1072,16 +1072,24 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="w-full sm:w-48 h-11 rounded-xl bg-white border-slate-200 text-xs font-bold"
                 >
-                  <option value="all">Todos los Estados</option>
-                  {filterOptions.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  <option value="all">Todos los Estados ({cleanData.length})</option>
+                  {filterOptions.statuses.map(s => (
+                    <option key={s} value={s}>
+                      {s} ({filterOptions.counts.statuses[s] || 0})
+                    </option>
+                  ))}
                 </Select>
                 <Select
                   value={priorityFilter}
                   onChange={(e) => setPriorityFilter(e.target.value)}
                   className="w-full sm:w-48 h-11 rounded-xl bg-white border-slate-200 text-xs font-bold"
                 >
-                  <option value="all">Todas las Criticidades</option>
-                  {filterOptions.priorities.map(p => <option key={p} value={p}>{p}</option>)}
+                  <option value="all">Todas las Criticidades ({cleanData.length})</option>
+                  {filterOptions.priorities.map(p => (
+                    <option key={p} value={p}>
+                      {p} ({filterOptions.counts.priorities[p] || 0})
+                    </option>
+                  ))}
                 </Select>
                 <Button 
                   variant="outline" 
