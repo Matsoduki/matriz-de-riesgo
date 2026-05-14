@@ -64,6 +64,7 @@ export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttrib
       outline: "border border-slate-200 bg-white hover:bg-slate-50 hover:text-slate-900 shadow-sm active:scale-95",
       ghost: "hover:bg-slate-100 hover:text-slate-900 active:scale-95",
       premium: "bg-brand-600 text-white hover:bg-brand-700 shadow-lg shadow-brand-200 ring-4 ring-brand-50 active:scale-95",
+      gold: "bg-tisal-gold text-slate-900 hover:bg-tisal-gold/90 shadow-lg shadow-tisal-gold/20 active:scale-95",
       danger: "bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-200 active:scale-95",
     };
     const sizes = {

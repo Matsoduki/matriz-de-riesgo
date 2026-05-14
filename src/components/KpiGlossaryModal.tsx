@@ -9,7 +9,11 @@ import {
   Info,
   Terminal,
   Calculator,
-  AlertTriangle
+  AlertTriangle,
+  Zap,
+  ShieldAlert,
+  Users,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -19,6 +23,7 @@ interface Kpi {
   formula: string;
   description: string;
   impact: string;
+  threshold?: string;
   thresholds: {
     low: string;
     mid: string;
@@ -29,24 +34,54 @@ interface Kpi {
 
 const KPI_DEFINITIONS: Kpi[] = [
   {
-    id: 'backlog_balance',
-    name: 'Backlog Balance',
-    formula: '(Unresolved Tasks / Weekly Throughput) * 100',
-    description: 'Mide la presión operativa instantánea sobre el equipo. Indica cuántas semanas de trabajo se acumulan frente a la velocidad de salida actual.',
-    impact: 'Detecta cuellos de botella antes de que afecten el SLA de incidentes críticos.',
+    id: 'compliance_sla',
+    name: 'Compliance SLA (Service Level Agreement)',
+    formula: '(Items Resolved within Deadline / Total Items) * 100',
+    description: 'Porcentaje de requerimientos resueltos dentro de la ventana de tiempo acordada. Es la métrica maestra de la calidad de servicio.',
+    impact: 'Garantiza la operatividad del negocio y minimiza las fricciones entre departamentos técnicos y usuarios finales.',
+    threshold: '100%',
     thresholds: {
-      low: '0-100% (Optimizado)',
-      mid: '101-250% (Saturación en Proceso)',
-      high: '>250% (Riesgo de Burnout/Bloqueo)'
+      low: '> 95% (Elite)',
+      mid: '85-95% (Riesgo de Incumplimiento)',
+      high: '< 85% (Penalización Contractual)'
     },
-    icon: Activity
+    icon: ShieldCheck
+  },
+  {
+    id: 'efficiency_score',
+    name: 'Efficiency Score (Productividad Relativa)',
+    formula: '(Throughput * Compliance) / MTTR',
+    description: 'Un indicador compuesto que normaliza la producción física frente a la calidad y la velocidad. Permite comparar equipos de diferentes tamaños.',
+    impact: 'Identifica los talentos de alto impacto y orienta la redistribución de carga de trabajo basada en mérito operativo.',
+    threshold: '0-100',
+    thresholds: {
+      low: '> 85 pts (Alto Desempeño)',
+      mid: '60-85 pts (En Desarrollo)',
+      high: '< 60 pts (Necesita Intervención)'
+    },
+    icon: Zap
+  },
+  {
+    id: 'governance_gap',
+    name: 'Governance Gap Index',
+    formula: '(Unmapped Risks / Total Risk Catalog) * 100',
+    description: 'Cuantifica la brecha entre los activos/tareas identificados y el catálogo oficial de gobierno. Mide el "Shadow IT" o tareas fuera de control.',
+    impact: 'Crucial para auditorías. Un gap alto indica que el equipo está trabajando en temas no alineados con la estrategia de riesgo.',
+    threshold: '0%',
+    thresholds: {
+      low: '< 5% (Gobernanza Total)',
+      mid: '5-15% (Derivación Operativa)',
+      high: '> 15% (Descontrol de Activos)'
+    },
+    icon: Search
   },
   {
     id: 'mttr',
     name: 'MTTR (Mean Time To Resolve)',
     formula: 'Sum(Resolution Time) / Total Items Resolved',
-    description: 'Promedio de tiempo transcurrido desde la asignación hasta el cierre definitivo del ítem.',
-    impact: 'Crucial para la resiliencia del negocio; un MTTR bajo reduce la ventana de exposición al riesgo.',
+    description: 'Promedio de tiempo transcurrido desde la asignación hasta el cierre definitivo del ítem. Es la unidad básica de velocidad operativa.',
+    impact: 'Crucial para la resiliencia del negocio; un MTTR bajo reduce exponencialmente la ventana de exposición al riesgo y pérdida de ingresos.',
+    threshold: 'T < 3d',
     thresholds: {
       low: '< 2 Días (Excelencia)',
       mid: '2-5 Días (Estándar)',
@@ -55,17 +90,32 @@ const KPI_DEFINITIONS: Kpi[] = [
     icon: Clock
   },
   {
-    id: 'lead_time',
-    name: 'Lead Time / Cycle Time',
-    formula: 'Total Duration / Completed Units',
-    description: 'Tiempo total que un requerimiento permanece en la línea de producción desde su creación hasta su entrega.',
-    impact: 'Mide la agilidad del equipo y la eficiencia de los procesos de escalamiento.',
+    id: 'backlog_balance',
+    name: 'Backlog Burn-rate',
+    formula: '(New Requests / Resolved Requests) Ratio',
+    description: 'Mide la sostenibilidad del flujo de trabajo. Un ratio > 1 indica que el backlog está creciendo más rápido de lo que el equipo puede resolver.',
+    impact: 'Métricas predictivas de colapso. Permite justificar incrementos de headcount o cambios en la prioridad de proyectos.',
+    threshold: 'Ratio 1.0',
     thresholds: {
-      low: 'Alta Agilidad',
-      mid: 'Proceso Estable',
-      high: 'Ineficiencia Administrativa'
+      low: '< 0.8 (Vaciado de Backlog)',
+      mid: '0.8-1.2 (Equilibrio de Flujo)',
+      high: '> 1.2 (Acumulación Insostenible)'
     },
-    icon: TrendingUp
+    icon: Activity
+  },
+  {
+    id: 'critical_exposure',
+    name: 'Critical Exposure Time',
+    formula: 'Σ(Current Time - Detection Time) for High Risks',
+    description: 'Mide cuánto tiempo han estado activos los riesgos críticos en la matriz MAC sin ser mitigados.',
+    impact: 'Es el KPI de mayor peso para la dirección de seguridad. Define el "Tiempo de Exposición" a incidentes graves.',
+    threshold: '24h',
+    thresholds: {
+      low: '< 12h (Resiliencia Extrema)',
+      mid: '12-48h (Ventana Vulnerable)',
+      high: '> 48h (Falla de Cumplimiento)'
+    },
+    icon: ShieldAlert
   }
 ];
 
@@ -118,9 +168,17 @@ export function KpiGlossaryModal({ isOpen, onClose }: Props) {
                       <div className="p-3 bg-white shadow-sm text-slate-400 group-hover:text-brand-500 rounded-xl transition-colors">
                         <kpi.icon size={20} />
                       </div>
-                      <div>
-                        <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight mb-1">{kpi.name}</h3>
-                        <div className="flex items-center gap-2 text-[9px] font-mono bg-slate-200/50 px-2 py-0.5 rounded text-slate-500 border border-slate-200">
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight mb-1">{kpi.name}</h3>
+                          {kpi.threshold && (
+                            <div className="bg-brand-50 text-brand-600 px-2 py-0.5 rounded-lg border border-brand-100 flex items-center gap-1.5">
+                              <Target size={10} />
+                              <span className="text-[9px] font-black uppercase tracking-widest">Meta: {kpi.threshold}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[9px] font-mono bg-slate-200/50 px-2 py-0.5 rounded text-slate-500 border border-slate-200 w-fit">
                           <Calculator size={10} />
                           {kpi.formula}
                         </div>

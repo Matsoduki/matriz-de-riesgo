@@ -107,17 +107,34 @@ export default function SensorView({ data, isOverview }: Props) {
 
     const analystMap: Record<string, number> = {};
     const statusMap: Record<string, number> = {};
+    const anomalies: any[] = [];
+    
     filtered.forEach(t => {
       const a = String(t['Analista'] || t['analista'] || 'Sin Asignar');
       analystMap[a] = (analystMap[a] || 0) + 1;
       
       const s = String(t[statusKey || 'Status'] || 'Unknown');
       statusMap[s] = (statusMap[s] || 0) + 1;
+
+      // Deterministic anomaly detection
+      const resVal = parseFloat(String(t[resolutionKey || 'Días Resolución'] || '0').replace(',', '.'));
+      if (resVal > 90 && !s.toLowerCase().includes('clos') && !s.toLowerCase().includes('resuelto')) {
+        anomalies.push({ id: t[idKey || 'Numero'], reason: 'Aging Crítico (>90 días sin resolver)', analyst: a, value: resVal });
+      }
     });
 
     const analystLoad = Object.entries(analystMap)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
+
+    // If one analyst has more than 40% of the active load and load > 5, flag as bottleneck
+    const totalLoad = analystLoad.reduce((acc, curr) => acc + curr.value, 0);
+    const overloadedAnalysts = analystLoad.filter(a => a.value > 5 && a.value / totalLoad > 0.4);
+    if (overloadedAnalysts.length > 0) {
+      overloadedAnalysts.forEach(oa => {
+        anomalies.push({ id: 'N/A', reason: `Sobrecarga Detectada (${oa.value} tickets, >40% del total)`, analyst: oa.name, value: oa.value });
+      });
+    }
 
     const statusDistribution = Object.entries(statusMap)
       .map(([name, value]) => ({ name, value }))
@@ -138,6 +155,7 @@ export default function SensorView({ data, isOverview }: Props) {
       analystLoad,
       statusDistribution,
       topAnalysts,
+      anomalies,
       statusKey: statusKey || 'Status',
       slaKey: slaKey || 'SLA Status',
       idKey: idKey || 'Numero'
@@ -226,72 +244,77 @@ export default function SensorView({ data, isOverview }: Props) {
 
   if (isOverview) {
     return (
-      <Card className="border-0 shadow-2xl shadow-slate-200/40 bg-white overflow-hidden group">
-        <CardContent className="p-10 relative">
-          <div className="absolute top-0 right-0 p-10 opacity-[0.03] -rotate-12 group-hover:rotate-0 transition-transform duration-1000">
+      <Card className="border-0 shadow-none bg-transparent overflow-hidden group">
+        <CardContent className="p-0 relative">
+          <div className="absolute top-0 right-0 p-10 opacity-[0.03] -rotate-12 group-hover:rotate-0 transition-transform duration-1000 pointer-events-none">
              <Activity size={200} />
           </div>
           
-          <div className="flex justify-between items-start mb-12">
-            <div className="px-4 py-2 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center gap-2">
-               <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-               <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Live Flow</span>
+          <div className="flex justify-between items-start mb-8">
+            <div className="px-4 py-2 bg-indigo-900 border border-indigo-800 rounded-xl shadow-lg shadow-brand-900/10 flex items-center gap-3 relative overflow-hidden">
+               <div className="absolute inset-0 bg-gradient-to-r from-tisal-gold/10 to-transparent pointer-events-none" />
+               <div className="h-2 w-2 rounded-full bg-tisal-gold animate-pulse shadow-[0_0_8px_#ffcd00]" />
+               <span className="text-[10px] font-black text-white uppercase tracking-[0.2em] relative z-10">Live Telemetría Soporte</span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
-            <div className="relative">
-              <div className="flex justify-between items-end mb-4">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cumplimiento de SLA Global</p>
-                <span className={`text-3xl font-black ${metrics && metrics.slaCompliance < 85 ? 'text-rose-500' : 'text-slate-800'} tracking-tighter`}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden group/sla flex flex-col justify-between">
+              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover/sla:opacity-10 transition-opacity">
+                 <ShieldAlert size={64} className={metrics && metrics.slaCompliance < 85 ? 'text-rose-500' : 'text-indigo-500'} />
+              </div>
+              <div className="flex justify-between items-end mb-4 relative z-10 w-full">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Cumplimiento <br/>de SLA Global</p>
+                <span className={`text-4xl font-black ${metrics && metrics.slaCompliance < 85 ? 'text-rose-600' : 'text-slate-800'} tracking-tighter`}>
                   {metrics?.slaCompliance.toFixed(1)}%
                 </span>
               </div>
-              <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-1000 ${metrics && metrics.slaCompliance < 85 ? 'bg-rose-500' : 'bg-indigo-600'}`}
-                  style={{ width: `${metrics?.slaCompliance || 0}%` }}
-                />
-              </div>
+               <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden relative z-10 shadow-inner">
+                 <div 
+                   className={`h-full transition-all duration-1000 ${metrics && metrics.slaCompliance < 85 ? 'bg-gradient-to-r from-rose-400 to-rose-600' : 'bg-gradient-to-r from-indigo-500 to-brand-600'}`}
+                   style={{ width: `${metrics?.slaCompliance || 0}%` }}
+                 />
+               </div>
             </div>
             
-            <div className="flex items-center gap-6 p-6 bg-slate-50 rounded-3xl border border-slate-100">
-               <div className="h-14 w-14 rounded-2xl bg-white shadow-sm flex items-center justify-center text-indigo-600">
-                  <Clock size={28} strokeWidth={2.5} />
+            <div className="flex items-center gap-6 p-6 bg-slate-900 rounded-[2rem] border border-slate-800 shadow-xl relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent pointer-events-none" />
+               <div className="h-16 w-16 rounded-2xl bg-indigo-500/20 backdrop-blur-md flex items-center justify-center text-tisal-gold border border-indigo-400/20 relative z-10 shrink-0">
+                  <Clock size={32} strokeWidth={2} />
                </div>
-               <div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">MTTR (Resolución Media)</p>
+               <div className="relative z-10">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">MTTR (Media)</p>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-black text-slate-800 tracking-tighter">{metrics?.avgResolution}</span>
-                    <span className="text-[10px] font-black text-slate-400 uppercase">Días / Ticket</span>
+                    <span className="text-4xl font-black text-white tracking-tighter">{metrics?.avgResolution}</span>
+                    <span className="text-[10px] font-black text-slate-500 uppercase">Días</span>
                   </div>
                </div>
             </div>
           </div>
           
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
+          <div className="space-y-6 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative">
+             <div className="absolute top-0 right-10 w-32 h-32 bg-amber-50 rounded-full blur-2xl -mt-16 pointer-events-none" />
+            <div className="flex items-center justify-between relative z-10">
                <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-[0.2em] flex items-center gap-2">
-                 <Layout size={14} className="text-indigo-500" />
-                 Distribución de Carga Crítica
+                 <Layout size={14} className="text-amber-500" />
+                 Distribución Carga Crítica
                </h4>
-               <span className="text-[10px] font-bold text-slate-400">{metrics?.total} Casos Totales</span>
+               <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-full">{metrics?.total} Tickets</span>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
-              {metrics?.analystLoad.slice(0, 6).map((analyst, i) => (
-                <div key={i} className="group/item cursor-default">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-black text-slate-600 group-hover/item:text-indigo-600 transition-colors uppercase tracking-tight">{analyst.name}</span>
-                    <span className="text-[11px] font-black text-slate-900">{analyst.value} <span className="text-[8px] text-slate-400">TKT</span></span>
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-50 rounded-full overflow-hidden flex">
-                    <div 
-                      className="h-full bg-indigo-500 transition-all duration-700 group-hover/item:bg-indigo-400" 
-                      style={{ width: `${(analyst.value / (metrics?.total || 1)) * 100}%` }}
-                    />
-                    <div className="flex-1 bg-slate-100" />
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 relative z-10">
+              {metrics?.analystLoad.slice(0, 4).map((analyst, i) => (
+                <div key={i} className="flex flex-col gap-1.5 group/item">
+                   <div className="flex justify-between items-center text-xs">
+                     <span className="font-bold text-slate-700 truncate max-w-[140px] uppercase text-[9px] tracking-widest transition-colors">{analyst.name}</span>
+                     <span className="font-black text-slate-900 group-hover/item:text-brand-600 transition-colors">{analyst.value} <span className="text-[8px] text-slate-400">TKT</span></span>
+                   </div>
+                   <div className="h-1.5 w-full bg-slate-50 rounded-full overflow-hidden">
+                     <div 
+                       className="h-full bg-slate-300 rounded-full transition-all group-hover/item:bg-tisal-gold"
+                       style={{ width: `${(analyst.value / metrics.total) * 100}%` }}
+                     />
+                   </div>
                 </div>
               ))}
             </div>
@@ -447,8 +470,8 @@ export default function SensorView({ data, isOverview }: Props) {
                  <Radio size={24} />
               </div>
               <div>
-                 <h3 className="text-xl font-black text-slate-900 tracking-tight uppercase">Explorador de Sensores</h3>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Auditoría de tickets y telemetría</p>
+                 <h3 className="text-xl font-black text-slate-900 tracking-tight uppercase">Centro de Telemetría <span className="text-brand-600">TISAL</span></h3>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Auditoría de tickets y salud de red</p>
               </div>
            </div>
            

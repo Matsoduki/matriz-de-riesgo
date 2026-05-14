@@ -38,7 +38,9 @@ import {
   Radar,
   Network,
   List,
-  FileSearch
+  FileSearch,
+  Calendar,
+  Users
 } from 'lucide-react';
 import { DetailsModal } from './DetailsModal';
 import { AnimatePresence, motion } from 'motion/react';
@@ -181,16 +183,20 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
 
     if (!cleanData || cleanData.length === 0) return initialState;
 
-    const sample = cleanData[0];
+    const sample: Record<string, boolean> = {};
+    for (const row of cleanData.slice(0, 100)) {
+       Object.keys(row).forEach(k => sample[k] = true);
+    }
     const statusKey = findColumnKey(sample, ['semaforo', 'status', 'estado']);
     const priorityKey = findColumnKey(sample, ['criticidad', 'priority', 'prioridad']);
     const assigneeKeysRaw = ['responsable seguridad', 'responsable de seguridad', 'responsable', 'backup', 'assignee', 'asignado', 'colaborador'].map(kw => findColumnKey(sample, [kw])).filter(Boolean) as string[];
     const assigneeKeys = Array.from(new Set(assigneeKeysRaw));
     const providerKey = findColumnKey(sample, ['proveedor', 'vendor', 'empresa externa', 'partner', 'consultora']);
-    const dateKey = findColumnKey(sample, ['fecha inicio', 'mes inicio', 'creado en', 'fecha', 'created', 'creación', 'creacion']);
-    const resolutionDateKey = findColumnKey(sample, ['fecha resolución', 'fecha resolucion', 'resolved', 'resolución', 'fecha fin', 'fin', 'completed date', 'resolved date']);
+    const dateKey = findColumnKey(sample, ['fecha inicio', 'mes inicio', 'creado en', 'fecha', 'created', 'creación', 'creacion', 'año', 'mes', 'inicio']);
+    const resolutionDateKey = findColumnKey(sample, ['fecha resolución', 'fecha resolucion', 'resolved', 'resolución', 'fecha fin', 'fin', 'completed date', 'resolved date', 'fecha cierre', 'cierre']);
     const idKey = findColumnKey(sample, ['nro.', 'numero', 'id', 'ticket']);
     const commitmentDateKey = findColumnKey(sample, ['fecha de compromiso', 'commitment', 'compromiso', 'vencimiento']);
+    const requesterKey = findColumnKey(sample, ['persona solicitante', 'solicitante', 'requester', 'reporter', 'creador', 'usuario', 'autor']);
 
     const filtered = cleanData.filter(row => {
       const matchesSearch = Object.values(row).some(val => 
@@ -209,6 +215,8 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
     const priorityCount: Record<string, number> = {};
     const timelineCount: Record<string, { created: number, resolved: number }> = {};
     const providerStats: Record<string, { total: number, resolved: number, delayed: number, critical: number }> = {};
+    const requesterStats: Record<string, number> = {};
+    const assigneeStats: Record<string, number> = {};
 
     filtered.forEach(row => {
       const priority = String(row[priorityKey || ''] || row['Prioridad'] || row['Criticidad'] || '').toLowerCase().trim();
@@ -218,6 +226,25 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
 
       const sVal = String(row[statusKey || ''] || '').toLowerCase();
       const isResolved = sVal.includes('done') || sVal.includes('cerrado') || sVal.includes('resuelto') || sVal.includes('closed') || sVal.includes('completado');
+
+      if (requesterKey && row[requesterKey]) {
+         const req = String(row[requesterKey]).trim();
+         if (req && req !== '-' && req.toLowerCase() !== 'n/a') {
+            requesterStats[req] = (requesterStats[req] || 0) + 1;
+         }
+      }
+
+      assigneeKeys.forEach(k => {
+         if (row[k]) {
+            const assignees = String(row[k]).split(/[,;]/);
+            assignees.forEach(a => {
+               const assignee = a.trim();
+               if (assignee && assignee !== '-' && assignee.toLowerCase() !== 'n/a' && assignee.toLowerCase() !== 'sin asignar') {
+                  assigneeStats[assignee] = (assigneeStats[assignee] || 0) + 1;
+               }
+            });
+         }
+      });
 
       // Provider logic
       if (providerKey && row[providerKey]) {
@@ -354,6 +381,9 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
       priorityChartData, 
       timelineData,
       topProjects,
+      topRequesters: Object.entries(requesterStats).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count).slice(0, 5),
+      topAssignees: Object.entries(assigneeStats).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count).slice(0, 5),
+      peakMonth: [...timelineData].filter(t => (t.count + t.resolved) > 0).sort((a,b) => (b.count + b.resolved) - (a.count + a.resolved))[0] || { date: 'N/A', count: 0, resolved: 0 },
       providerChartData,
       insights,
       statusKey, 
@@ -569,10 +599,17 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
               </div>
             </div>
             <div className="px-6 py-4 flex flex-col justify-center gap-1 bg-slate-50/50 rounded-2xl">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Último Registro</span>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Último Registro (Estático 2026)</span>
               <span className="text-[11px] font-black text-slate-600 font-mono tracking-tighter">
                 {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}
               </span>
+            </div>
+            <div className="px-6 py-4 flex flex-col justify-center gap-1 bg-indigo-50/50 rounded-2xl ml-2">
+              <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest leading-none">Jira Cloud API (Próximamente)</span>
+              <div className="flex items-center gap-2">
+                 <div className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+                 <span className="text-[11px] font-black text-indigo-700 uppercase">OFFLINE - Pendiente de Integración</span>
+              </div>
             </div>
           </div>
         </motion.div>
@@ -581,44 +618,182 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
       {isOverview ? (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
-            <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm group hover:border-indigo-200 transition-all">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Velocidad del Portfolio</p>
-              <div className="flex items-end gap-2">
-                <span className="text-3xl font-black text-indigo-600">
-                  {metrics.total > 0 ? Math.round(((metrics.total - metrics.activeTickets) / metrics.total) * 100) : 0}%
+            <div className="p-6 bg-slate-900 rounded-3xl border border-slate-800 shadow-xl shadow-brand-900/20 group hover:border-tisal-gold/50 transition-all relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-10">
+                 <Target size={64} className="text-tisal-gold group-hover:scale-110 transition-transform duration-700" />
+              </div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Velocidad del Portfolio</p>
+              <div className="flex items-end gap-2 relative z-10">
+                <span className="text-5xl font-black text-white tracking-tighter leading-none">
+                  {metrics.total > 0 ? Math.round(((metrics.total - metrics.activeTickets) / metrics.total) * 100) : 0}<span className="text-tisal-gold text-3xl">%</span>
                 </span>
-                <span className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-tighter">Throughput</span>
+                <span className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-widest">Throughput</span>
               </div>
             </div>
-            <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm group hover:border-rose-200 transition-all">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Saturación de Riesgo</p>
-              <div className="flex items-end gap-2 text-rose-500">
-                <span className="text-3xl font-black">{metrics.delayedTickets}</span>
-                <span className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-tighter">Cuellos de Botella</span>
+            <div className="p-6 bg-white rounded-3xl border border-rose-100 shadow-sm group hover:border-rose-300 transition-all relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-[0.03]">
+                 <AlertTriangle size={64} className="text-rose-600 group-hover:scale-110 transition-transform duration-700" />
+              </div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Saturación de Riesgo</p>
+              <div className="flex items-end gap-2 text-rose-600 relative z-10">
+                <span className="text-5xl font-black tracking-tighter leading-none">{metrics.delayedTickets}</span>
+                <span className="text-[10px] font-bold text-rose-400 mb-1.5 uppercase tracking-widest">Cuellos de Botella</span>
               </div>
             </div>
           </div>
-
-          <div className="h-44 w-full">
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5 flex flex-col justify-between">
+               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-4">Pico Histórico</span>
+               <div className="flex items-center gap-4">
+                 <div className="h-12 w-12 rounded-2xl bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
+                   <Calendar size={20} />
+                 </div>
+                 <div>
+                   <span className="text-2xl font-black text-slate-700 block leading-none tracking-tight">{metrics.peakMonth ? metrics.peakMonth.date : '-'}</span>
+                   <span className="text-xs font-bold text-slate-500 mt-1 block">{metrics.peakMonth ? `${metrics.peakMonth.count + metrics.peakMonth.resolved} Movimientos` : '-'}</span>
+                 </div>
+               </div>
+            </div>
+            
+            <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5 flex flex-col justify-between">
+               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-4">Productividad Global</span>
+               <div className="flex items-center gap-4">
+                 <div className="h-12 w-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                   <Target size={20} />
+                 </div>
+                 <div>
+                   <span className="text-2xl font-black text-slate-700 block leading-none tracking-tight">{metrics.total - metrics.activeTickets} <span className="text-sm text-slate-400">/ {metrics.total}</span></span>
+                   <span className="text-xs font-bold text-slate-500 mt-1 block">Tickets Resueltos</span>
+                 </div>
+               </div>
+            </div>
+            
+            <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5 flex flex-col justify-between">
+               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-4">Atraso</span>
+               <div className="flex items-center gap-4">
+                 <div className="h-12 w-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                   <AlertTriangle size={20} />
+                 </div>
+                 <div>
+                   <span className="text-2xl font-black text-slate-700 block leading-none tracking-tight">{metrics.delayedTickets}</span>
+                   <span className="text-xs font-bold text-slate-500 mt-1 block">Tickets Vencidos</span>
+                 </div>
+               </div>
+            </div>
+          </div>
+          
+          <div className="h-64 w-full bg-slate-50 rounded-3xl p-6 border border-slate-100 relative">
+             <div className="absolute top-6 left-6 flex items-center gap-2">
+                <div className="h-1.5 w-1.5 rounded-full bg-brand-500 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cronología Operativa (Portfolio)</span>
+             </div>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={metrics.timelineData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <AreaChart data={metrics.timelineData} margin={{ top: 30, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorCountJira" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#005bb7" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#005bb7" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorResolvedJira" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="date" hide />
-                <YAxis hide />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{fontSize: 10, fill: '#64748b', fontWeight: 700}} tickMargin={10} axisLine={false} tickLine={false} />
+                <YAxis tick={{fontSize: 10, fill: '#64748b', fontWeight: 700}} tickMargin={10} axisLine={false} tickLine={false} />
                 <Tooltip 
-                  contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', padding: '12px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '16px', padding: '12px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.2)' }}
                   labelStyle={{ fontWeight: '900', color: '#94a3b8', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}
-                  itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                  itemStyle={{ color: '#10b981', fontSize: '14px', fontWeight: '900' }}
                 />
-                <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorCountJira)" />
+                <Area type="monotone" dataKey="count" name="Nuevos" stroke="#005bb7" strokeWidth={3} fillOpacity={1} fill="url(#colorCountJira)" />
+                <Area type="monotone" dataKey="resolved" name="Resueltos" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorResolvedJira)" />
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             <Card className="border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] bg-white border border-indigo-100/60 p-6 overflow-hidden relative group transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                <div className="absolute top-0 right-0 p-4 opacity-[0.03] transition-transform duration-700 pointer-events-none group-hover:scale-110">
+                   <Users size={80} className="text-indigo-600" />
+                </div>
+                <div className="flex items-center gap-4 mb-6 relative z-10">
+                   <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl border border-indigo-100/50 shadow-inner"><Users size={18} strokeWidth={2.5} /></div>
+                   <div>
+                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-none mb-1">Mayor Solicitante</h4>
+                     <p className="text-sm font-black text-indigo-950 tracking-tight">Demanda Operativa</p>
+                   </div>
+                </div>
+                <div className="space-y-4 relative z-10">
+                   {metrics.topRequesters.length > 0 ? metrics.topRequesters.slice(0, 3).map((req, i) => (
+                      <div key={i} className="flex flex-col gap-2">
+                         <div className="flex justify-between items-center">
+                           <span className="text-[11px] font-bold text-slate-700 truncate max-w-[140px]">{req.name}</span>
+                           <span className="text-[11px] font-black text-indigo-600 px-2 py-0.5 bg-indigo-50 rounded-lg">{req.count} <span className="text-[9px] text-indigo-400">TKT</span></span>
+                         </div>
+                         <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                           <motion.div initial={{ width: 0 }} animate={{ width: `${(req.count / (metrics.topRequesters[0]?.count || 1)) * 100}%` }} className="h-full bg-indigo-500 rounded-full" transition={{ duration: 1, ease: "easeOut" }} />
+                         </div>
+                      </div>
+                   )) : (
+                      <span className="text-xs font-bold text-slate-400 block text-center py-4 bg-slate-50 rounded-xl">Datos no disponibles</span>
+                   )}
+                </div>
+             </Card>
+             
+             <Card className="border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] bg-white border border-brand-100/60 p-6 overflow-hidden relative group transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                <div className="absolute top-0 right-0 p-4 opacity-[0.03] transition-transform duration-700 pointer-events-none group-hover:scale-110">
+                   <Target size={80} className="text-brand-600" />
+                </div>
+                <div className="flex items-center gap-4 mb-6 relative z-10">
+                   <div className="p-3 bg-brand-50 text-brand-600 rounded-2xl border border-brand-100/50 shadow-inner"><Target size={18} strokeWidth={2.5} /></div>
+                   <div>
+                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-none mb-1">Mayor Proyecto</h4>
+                     <p className="text-sm font-black text-brand-950 tracking-tight">Foco de Esfuerzo</p>
+                   </div>
+                </div>
+                <div className="space-y-4 relative z-10">
+                   {metrics.topProjects.slice(0, 3).map((proj: any, i: number) => (
+                      <div key={i} className="flex flex-col gap-2">
+                         <div className="flex justify-between items-center">
+                           <span className="text-[11px] font-bold text-slate-700 truncate max-w-[140px]">{proj.name}</span>
+                           <span className="text-[11px] font-black text-brand-600 px-2 py-0.5 bg-brand-50 rounded-lg">{proj.total} <span className="text-[9px] text-brand-400">TKT</span></span>
+                         </div>
+                         <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                           <motion.div initial={{ width: 0 }} animate={{ width: `${(proj.total / (metrics.topProjects[0]?.total || 1)) * 100}%` }} className="h-full bg-brand-500 rounded-full" transition={{ duration: 1, ease: "easeOut", delay: 0.1 }} />
+                         </div>
+                      </div>
+                   ))}
+                </div>
+             </Card>
+             
+             <Card className="border-0 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] bg-white border border-amber-100/60 p-6 overflow-hidden relative group transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                <div className="absolute top-0 right-0 p-4 opacity-[0.03] transition-transform duration-700 pointer-events-none group-hover:scale-110">
+                   <Clock size={80} className="text-amber-600" />
+                </div>
+                <div className="flex items-center gap-4 mb-6 relative z-10">
+                   <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl border border-amber-100/50 shadow-inner"><Clock size={18} strokeWidth={2.5} /></div>
+                   <div>
+                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-none mb-1">Mayor Responsable</h4>
+                     <p className="text-sm font-black text-amber-950 tracking-tight">Carga Resolutiva</p>
+                   </div>
+                </div>
+                <div className="space-y-4 relative z-10">
+                   {metrics.topAssignees.slice(0, 3).map((assignee, i) => (
+                      <div key={i} className="flex flex-col gap-2">
+                         <div className="flex justify-between items-center">
+                           <span className="text-[11px] font-bold text-slate-700 truncate max-w-[140px]">{assignee.name}</span>
+                           <span className="text-[11px] font-black text-amber-600 px-2 py-0.5 bg-amber-50 rounded-lg">{assignee.count} <span className="text-[9px] text-amber-400">TKT</span></span>
+                         </div>
+                         <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                           <motion.div initial={{ width: 0 }} animate={{ width: `${(assignee.count / (metrics.topAssignees[0]?.count || 1)) * 100}%` }} className="h-full bg-amber-500 rounded-full" transition={{ duration: 1, ease: "easeOut", delay: 0.2 }} />
+                         </div>
+                      </div>
+                   ))}
+                </div>
+             </Card>
           </div>
         </div>
       ) : (
@@ -897,7 +1072,7 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
                     <div className="flex items-center justify-between mb-8 relative z-10">
                        <div className="flex items-center gap-3">
                           <div className="h-2 w-2 rounded-full bg-brand-400 shadow-[0_0_10px_#22d3ee] animate-pulse" />
-                          <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">Resumen</p>
+                          <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">Smart Action Plans (Insights)</p>
                        </div>
                     </div>
                     
@@ -1045,9 +1220,85 @@ export default function JiraView({ data, title, isOverview = false, maxYear }: P
               </CardContent>
             </Card>
           </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             <Card className="border-0 shadow-lg shadow-slate-200/40 rounded-[2.5rem] bg-indigo-50 border border-indigo-100/50 p-8">
+                <div className="flex items-center gap-4 mb-8">
+                   <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl"><Users size={20} /></div>
+                   <div>
+                     <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-900">Demanda por Solicitante</h4>
+                     <p className="text-[10px] font-bold text-indigo-500 uppercase">Top 5 Requesters</p>
+                   </div>
+                </div>
+                <div className="space-y-4">
+                   {metrics.topRequesters.length > 0 ? metrics.topRequesters.map((req, i) => (
+                      <div key={i} className="flex flex-col gap-1.5">
+                         <div className="flex justify-between items-center text-xs">
+                           <span className="font-bold text-indigo-900 truncate max-w-[150px]">{req.name}</span>
+                           <span className="font-black text-indigo-700">{req.count} <span className="text-[8px] opacity-70">TKT</span></span>
+                         </div>
+                         <div className="h-1 w-full bg-indigo-200/50 rounded-full overflow-hidden">
+                           <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(req.count / (metrics.topRequesters[0]?.count || 1)) * 100}%` }} />
+                         </div>
+                      </div>
+                   )) : (
+                      <div className="flex flex-col items-center justify-center p-6 text-center bg-white/50 rounded-2xl border border-indigo-100">
+                         <span className="text-xs font-bold text-indigo-400">Datos no disponibles</span>
+                         <span className="text-[10px] text-indigo-300">Columna no hallada</span>
+                      </div>
+                   )}
+                </div>
+             </Card>
+             
+             <Card className="border-0 shadow-lg shadow-slate-200/40 rounded-[2.5rem] bg-brand-50 border border-brand-100/50 p-8">
+                <div className="flex items-center gap-4 mb-8">
+                   <div className="p-3 bg-brand-100 text-brand-600 rounded-2xl"><Target size={20} /></div>
+                   <div>
+                     <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-900">Proyectos / Tareas Top</h4>
+                     <p className="text-[10px] font-bold text-brand-500 uppercase">Concentración de esfuerzo</p>
+                   </div>
+                </div>
+                <div className="space-y-4">
+                   {metrics.topProjects.slice(0, 5).map((proj: any, i: number) => (
+                      <div key={i} className="flex flex-col gap-1.5">
+                         <div className="flex justify-between items-center text-xs">
+                           <span className="font-bold text-brand-900 truncate max-w-[150px]">{proj.name}</span>
+                           <span className="font-black text-brand-700">{proj.total} <span className="text-[8px] opacity-70">TKT</span></span>
+                         </div>
+                         <div className="h-1 w-full bg-brand-200/50 rounded-full overflow-hidden">
+                           <div className="h-full bg-brand-500 rounded-full" style={{ width: `${(proj.total / (metrics.topProjects[0]?.total || 1)) * 100}%` }} />
+                         </div>
+                      </div>
+                   ))}
+                </div>
+             </Card>
+             
+             <Card className="border-0 shadow-lg shadow-slate-200/40 rounded-[2.5rem] bg-amber-50 border border-amber-100/50 p-8">
+                <div className="flex items-center gap-4 mb-8">
+                   <div className="p-3 bg-amber-100 text-amber-600 rounded-2xl"><Clock size={20} /></div>
+                   <div>
+                     <h4 className="text-[10px] font-black uppercase tracking-widest text-amber-900">Carga por Responsable</h4>
+                     <p className="text-[10px] font-bold text-amber-500 uppercase">Capacidad Operativa</p>
+                   </div>
+                </div>
+                <div className="space-y-4">
+                   {metrics.topAssignees.map((assignee, i) => (
+                      <div key={i} className="flex flex-col gap-1.5">
+                         <div className="flex justify-between items-center text-xs">
+                           <span className="font-bold text-amber-900 truncate max-w-[150px]">{assignee.name}</span>
+                           <span className="font-black text-amber-700">{assignee.count} <span className="text-[8px] opacity-70">TKT</span></span>
+                         </div>
+                         <div className="h-1 w-full bg-amber-200/50 rounded-full overflow-hidden">
+                           <div className="h-full bg-amber-500 rounded-full" style={{ width: `${(assignee.count / (metrics.topAssignees[0]?.count || 1)) * 100}%` }} />
+                         </div>
+                      </div>
+                   ))}
+                </div>
+             </Card>
+          </div>
 
       {!isOverview && (
-        <div className="space-y-6">
+        <div className="space-y-6 mt-8">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">
              <div className="flex items-center gap-4">
                 <div className="p-3 bg-slate-900 text-white rounded-2xl shadow-lg shadow-slate-200"><List size={20} /></div>

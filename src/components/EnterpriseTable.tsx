@@ -256,7 +256,7 @@ export const EnterpriseTable: React.FC<EnterpriseTableProps> = ({
           )}
         </div>
 
-        <div className="p-8 border-t border-slate-50 bg-[#fbfcff] flex flex-col md:flex-row justify-between items-center gap-6">
+        <div className="p-8 border-t border-slate-50 bg-[#fbfcff] flex flex-col md:flex-row justify-between items-center gap-6 relative z-30">
           <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
             <span className="uppercase tracking-widest">Mostrando</span>
             <select 

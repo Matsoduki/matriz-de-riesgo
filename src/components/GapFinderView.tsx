@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Modal, Button } from './ui';
 import { AlertCircle, FileSearch, CheckCircle2, ArrowRight, ShieldAlert, Zap, Info, ChevronRight, XCircle, Search, Activity, List, Target, Download, FileSpreadsheet, ExternalLink, RefreshCcw } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell as RechartsCell } from 'recharts';
-import { SCOPE_MAPPING, AMBITO_GROUPS, CYBER_SLA_POLICIES, PriorityLevel } from '../constants/cyberCatalog';
+import { SCOPE_MAPPING, AMBITO_GROUPS, AMBITO_REVERSE_MAPPING, CYBER_SLA_POLICIES, PriorityLevel } from '../constants/cyberCatalog';
 import { motion, AnimatePresence } from 'motion/react';
 import { isCriticalPriority } from './CyberView';
 import { DetailsModal } from './DetailsModal';
@@ -68,10 +68,33 @@ export const GapFinderView: React.FC<Props> = ({ data }) => {
       
       if (strategicCategory === 'Anomalía de Clasificación MAC') {
         const impactScore = isCritical ? 100 : (priorityRaw.toLowerCase().includes('media') ? 60 : 25);
+        
+        let suggestedMapping = null;
+        const lookupString = (projectRaw + " " + String(row['Ámbitos Relacionados'] || row['Ambitos'] || '')).toLowerCase();
+        
+        // Reverse exact match
+        for (const [key, val] of Object.entries(AMBITO_REVERSE_MAPPING)) {
+          if (lookupString.includes(key.toLowerCase())) {
+             suggestedMapping = val;
+             break;
+          }
+        }
+        
+        // Fallback scope mapping
+        if (!suggestedMapping) {
+          for (const [key, val] of Object.entries(SCOPE_MAPPING)) {
+            if (lookupString.includes(key.toLowerCase())) {
+               suggestedMapping = val;
+               break;
+            }
+          }
+        }
+
         unmappedItems.push({ 
           ...row, 
           strategicCategory, 
           impactScore,
+          suggestedMapping,
           projectName: projectRaw || 'Ítem sin Título'
         });
       }
@@ -565,18 +588,18 @@ export const GapFinderView: React.FC<Props> = ({ data }) => {
               </div>
            </div>
 
-           <div className="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar space-y-3">
+           <div className="max-h-[500px] overflow-y-auto pr-2 custom-scrollbar space-y-4">
               {selectedUnmapped?.map((item, i) => (
-                <div key={i} className="p-5 rounded-2xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition-all">
-                  <div className="flex justify-between items-start mb-3">
-                     <p className="text-xs font-black text-slate-800 uppercase leading-tight max-w-[80%]">
+                <div key={i} className="p-5 rounded-[1.5rem] bg-white border border-slate-100 shadow-sm hover:shadow-lg transition-all flex flex-col gap-3 group relative overflow-hidden">
+                  <div className="flex justify-between items-start z-10 relative">
+                     <p className="text-xs font-black text-slate-800 uppercase leading-tight max-w-[75%]">
                         {item['Vulnerabilidades'] || item['GAP'] || item['PROYECTO O TAREA'] || 'Descriptor no hallado'}
                      </p>
-                     <div className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${isCriticalPriority(item['Criticidad'] || item['Prioridad'] || '') ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-500'}`}>
+                     <div className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${isCriticalPriority(item['Criticidad'] || item['Prioridad'] || '') ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-slate-50 text-slate-500 border-slate-200'} border`}>
                         {item['Criticidad'] || item['Prioridad'] || 'Media'}
                      </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 z-10 relative bg-slate-50 p-3 rounded-xl border border-slate-100">
                      <div>
                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-1">Estado</span>
                         <p className="text-[10px] font-bold text-slate-600 uppercase">{item['SEMAFORO'] || item['Estado'] || 'Activo'}</p>
@@ -586,6 +609,34 @@ export const GapFinderView: React.FC<Props> = ({ data }) => {
                         <p className="text-[10px] font-bold text-slate-600">{item['Responsable Seguridad'] || '-'}</p>
                      </div>
                   </div>
+
+                  {item.suggestedMapping ? (
+                     <div className="mt-2 bg-brand-50/50 p-4 rounded-xl border border-brand-100 z-10 relative">
+                        <div className="flex items-center gap-2 mb-2">
+                           <Zap size={14} className="text-brand-500" />
+                           <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest">Smart Action Plan</span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-700">
+                           Se detectó coincidencia de ámbitos. Acción recomendada: 
+                           <span className="block mt-1 font-black text-brand-700 bg-brand-100 px-3 py-1.5 rounded-lg border border-brand-200 inline-block">
+                             Re-asignar a: {item.suggestedMapping}
+                           </span>
+                        </p>
+                     </div>
+                  ) : (
+                     <div className="mt-2 bg-amber-50/50 p-4 rounded-xl border border-amber-100 z-10 relative">
+                        <div className="flex items-center gap-2 mb-2">
+                           <AlertCircle size={14} className="text-amber-500" />
+                           <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Revisión Manual Requerida</span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-600">
+                           No se detectaron correlaciones obvias en los ámbitos para la categoría estratégica. Solicitar revisión al responsable de gobernanza.
+                        </p>
+                     </div>
+                  )}
+                  {item.suggestedMapping && (
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-100/50 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none" />
+                  )}
                 </div>
               ))}
            </div>

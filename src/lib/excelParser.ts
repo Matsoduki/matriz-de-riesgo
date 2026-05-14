@@ -291,5 +291,81 @@ export const getISOFromExcelDate = (value: any): string => {
     return strVal.substring(0, 10);
   }
   
+  // Handle DD/MM/YYYY or D/M/YYYY
+  const parts = strVal.split(/[\/\-]/);
+  if (parts.length >= 3) {
+    let day = parts[0];
+    let month = parts[1];
+    let year = parts[2].split(/[ T]/)[0]; // strip time if present
+    
+    // If year is first (YYYY/MM/DD)
+    if (day.length === 4) {
+      year = parts[0];
+      day = parts[2].split(/[ T]/)[0];
+    } else if (year.length === 2) {
+      year = "20" + year;
+    }
+
+    if (year.length === 4 && parseInt(month) >= 1 && parseInt(month) <= 12 && parseInt(day) >= 1 && parseInt(day) <= 31) {
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+  }
+
+  // Attempt standard Date parsing
+  const d = new Date(strVal);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().substring(0, 10);
+  }
+  
   return strVal;
+};
+
+/**
+ * Normalizes a time series by filling in missing months or weeks with zero values.
+ * This ensures "periodicals" (periodic data) are continuous and correctly visualized.
+ */
+export const normalizeContinuousSeries = (
+  data: any[], 
+  key: string, 
+  type: 'month' | 'week' = 'month',
+  fillKeys: string[] = ['count', 'resolved', 'critical']
+) => {
+  if (data.length === 0) return data;
+
+  const sorted = [...data].sort((a, b) => a[key].localeCompare(b[key]));
+  const first = sorted[0][key];
+  const last = sorted[sorted.length - 1][key];
+
+  if (first === "Sin Fecha" || last === "Sin Fecha") return data;
+
+  const result = [];
+  let current = first;
+
+  const getNext = (val: string) => {
+    if (type === 'month') {
+      const [y, m] = val.split('-').map(Number);
+      const d = new Date(y, m, 1);
+      return d.toISOString().substring(0, 7);
+    } else {
+      // Simplistic week increment for WXX-YYYY
+      const [y, w] = val.split('-W').map(Number);
+      if (w >= 52) return `${y + 1}-W01`;
+      return `${y}-W${String(w + 1).padStart(2, '0')}`;
+    }
+  };
+
+  while (current <= last) {
+    const existing = sorted.find(d => d[key] === current);
+    if (existing) {
+      result.push(existing);
+    } else {
+      const placeholder: any = { [key]: current };
+      fillKeys.forEach(fk => placeholder[fk] = 0);
+      result.push(placeholder);
+    }
+    current = getNext(current);
+    if (result.length > 100) break; // Safety break
+  }
+
+  return result;
 };

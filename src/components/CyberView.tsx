@@ -879,7 +879,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
     );
     const mttcScore = Math.max(0, 100 - (mttcVal * 3)); // Decays after 33 days
 
-    // Robust CHI Formula (Enterprise Grade)
+    // Robust CHI Formula
     // 30% SLA + 30% Coverage + 20% Criticality (Inverted) + 20% MTTC Performance
     const chiVal = Math.max(0, Math.min(100, Math.round(
       (slaCompliance * 0.3) + 
@@ -892,7 +892,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
     const criticalDensity = criticalDensityVal;
     const mttc = mttcVal;
 
-    // Advanced Insight Engine logic - Surprising and Enterprise-ready
+    // Lógica de Auditoría Táctica - Consolidada para Empresa
     const insights = [];
     if (chiVal < 85) insights.push({
       title: "Resiliencia de Postura",
@@ -920,7 +920,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
       type: "success"
     });
 
-    // Simulated Trend Logic (Enterprise feeling)
+    // Lógica de Tendencia Operativa
     const trends = {
       defense: { 
         direction: chiVal >= 80 ? "up" : "down", 
@@ -975,6 +975,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
         resolved: stats.resolved,
         onTime: stats.onTime,
         compliance: stats.resolved > 0 ? Math.round((stats.onTime / stats.resolved) * 100) : 100,
+        isProjected: month > "2026-05" && month !== "Sin Fecha"
       }))
       .sort((a, b) => {
         if (a.month === "Sin Fecha") return -1;
@@ -1000,6 +1001,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
         resolved: cumResolved,
         compliance: cumResolved > 0 ? Math.round((cumOnTime / cumResolved) * 100) : 100,
         newThisMonth: item.count,
+        isProjected: item.isProjected
       };
     });
 
@@ -1085,6 +1087,15 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
   const [trendTimeFilter, setTrendTimeFilter] = useState<"all" | "6m" | "3m">(
     "all",
   );
+  const [hiddenSeries, setHiddenSeries] = useState<string[]>([]);
+
+  const toggleSeries = (seriesName: string) => {
+    setHiddenSeries(prev => 
+      prev.includes(seriesName) 
+        ? prev.filter(s => s !== seriesName) 
+        : [...prev, seriesName]
+    );
+  };
   const [showValueHub, setShowValueHub] = useState(false);
 
   React.useEffect(() => {
@@ -1124,15 +1135,89 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
       const dateItems = sorted.filter((s) => s.month !== "Sin Fecha");
       sorted = dateItems.slice(-limit);
     }
+    
+    const CURRENT_MONTH = "2026-05";
+    const FAR_FUTURE_THRESHOLD = "2026-07"; // Beyond July is "Far Future"
+
     return sorted.length > 0
-      ? sorted
-      : [{ month: "N/A", count: 0, critical: 0, resolved: 0, compliance: 100, newThisMonth: 0 }];
+      ? sorted.map(item => {
+          const isProjected = item.month > CURRENT_MONTH && item.month !== "Sin Fecha";
+          const isFarFuture = item.month > FAR_FUTURE_THRESHOLD && item.month !== "Sin Fecha";
+          const isTransition = item.month === CURRENT_MONTH;
+          
+          return {
+            ...item,
+            isProjected,
+            isFarFuture,
+            // Separated keys for consistent rendering in a single chart
+            val_count: item.count,
+            val_resolved: item.resolved,
+            val_compliance: item.compliance,
+            // Masked values for dashed segments
+            past_count: !isProjected ? item.count : null,
+            proj_count: (isProjected || isTransition) ? item.count : null,
+            past_resolved: !isProjected ? item.resolved : null,
+            proj_resolved: (isProjected || isTransition) ? item.resolved : null,
+            past_compliance: !isProjected ? item.compliance : null,
+            proj_compliance: (isProjected || isTransition) ? item.compliance : null,
+          };
+        })
+      : [{ month: "N/A", count: 0, critical: 0, resolved: 0, compliance: 100, newThisMonth: 0, isProjected: false }];
   }, [
     metrics.monthlyTrends,
     metrics.cumulativeTrends,
     trendViewType,
     trendTimeFilter,
   ]);
+
+  const forecastMetrics = useMemo(() => {
+    const currentMonthData = metrics.cumulativeTrends.find(d => d.month === "2026-05");
+    const midTermData = metrics.cumulativeTrends.find(d => d.month === "2026-07");
+    const longTermData = metrics.cumulativeTrends[metrics.cumulativeTrends.length - 1];
+
+    const snapshot = {
+      label: "Snapshot Actual",
+      value: metrics.chiVal,
+      unit: "%",
+      status: metrics.chiVal > 85 ? "Óptimo" : metrics.chiVal > 70 ? "Alerta" : "Crítico",
+      desc: "Estado consolidado del inventario actual",
+      detail: `${metrics.total} Hallazgos Activos`,
+      color: "text-emerald-500",
+      bg: "bg-emerald-50",
+      icon: Activity
+    };
+
+    const captureTrend = midTermData && currentMonthData ? (midTermData.count / (currentMonthData.count || 1)) : 1.15;
+    const resolvedTrend = midTermData && currentMonthData ? (midTermData.resolved / (currentMonthData.resolved || 1)) : 1.05;
+    const momentum = resolvedTrend / (captureTrend || 1);
+
+    const proyectado = {
+      label: "Inercia Q3-26",
+      value: Math.round(momentum * 100),
+      unit: "%",
+      status: momentum >= 1 ? "Sostenible" : "En Riesgo",
+      desc: "Capacidad de resolución vs tasa de entrada",
+      detail: `Brecha Proyectada: ${Math.abs(Math.round((1-momentum)*100))}%`,
+      color: "text-amber-500",
+      bg: "bg-amber-50",
+      icon: Zap
+    };
+
+    const horizonteValue = longTermData?.compliance ?? 92;
+    const horizonte = {
+      label: "Visión 2027",
+      value: horizonteValue,
+      unit: "%",
+      status: horizonteValue > 90 ? "Resiliente" : "En Definición",
+      desc: "Cumplimiento normativo proyectado a largo plazo",
+      detail: "Roadmap Estratégico",
+      color: "text-indigo-500",
+      bg: "bg-indigo-50",
+      icon: Globe
+    };
+
+    return [snapshot, proyectado, horizonte];
+  }, [metrics]);
 
   const valueInsights = [
     {
@@ -1228,7 +1313,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
             </span>
           </div>
           <h1 className="text-5xl font-black text-slate-900 tracking-tighter">
-            MAC<span className="text-brand-600">.</span> Matriz de Riesgo
+            Matriz MAC <span className="text-brand-600">TISAL</span>
           </h1>
           <p className="text-sm text-slate-500 mt-2 font-medium">
             Control estratégico de ciberseguridad, riesgos y resiliencia táctica.
@@ -1308,9 +1393,9 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
         <section className="mb-12 animate-in fade-in slide-in-from-top-4 duration-1000">
            <div className="flex items-center gap-6 mb-8">
               <div className="h-[2px] flex-1 bg-slate-100" />
-              <div className="flex items-center gap-4 px-8 py-3">
-                 <Zap size={18} className="text-slate-400" />
-                 <h4 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">Resiliencia Consolidada MAC</h4>
+              <div className="flex items-center gap-4 px-8 py-3 bg-tisal-gold/5 rounded-full border border-tisal-gold/10 shadow-sm backdrop-blur-md">
+                 <Zap size={18} className="text-tisal-gold" />
+                 <h4 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-800">Resiliencia Consolidada TISAL</h4>
               </div>
               <div className="h-[2px] flex-1 bg-slate-100" />
            </div>
@@ -1425,7 +1510,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
         )}
       </AnimatePresence>
 
-      {/* KPI Cards */}
+      {/* KPI Cards row */}
       <CyberMetricsCards 
         onCardClick={handleKpiClick}
         metrics={{
@@ -1446,6 +1531,47 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
         }}
       />
 
+      {/* Operative Strategy Hub - Refined Visibility */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
+        {forecastMetrics.map((item, idx) => (
+          <div key={idx} className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl flex flex-col gap-8 group hover:shadow-2xl transition-all relative overflow-hidden">
+            <div className={`absolute top-0 right-0 p-8 opacity-[0.03] group-hover:scale-125 transition-transform duration-1000 ${item.color}`}>
+              <item.icon size={120} />
+            </div>
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex items-center gap-3">
+                <div className={`p-3 rounded-2xl ${item.bg} ${item.color}`}>
+                  <item.icon size={20} />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{item.label}</span>
+              </div>
+              <span className={`text-[9px] font-black px-3 py-1.5 rounded-full ${item.bg} ${item.color} border border-current/10`}>
+                {item.status}
+              </span>
+            </div>
+            
+            <div className="relative z-10">
+              <div className="flex items-baseline gap-2">
+                <span className="text-6xl font-black text-slate-900 tracking-tighter">{item.value}</span>
+                <span className="text-xl font-black text-slate-400">{item.unit}</span>
+              </div>
+              <p className="text-[11px] font-bold text-slate-500 mt-4 uppercase tracking-wide leading-relaxed max-w-[80%]">
+                {item.desc}
+              </p>
+            </div>
+
+            <div className="pt-8 border-t border-slate-50 relative z-10">
+              <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-slate-400">
+                <span>{item.detail}</span>
+                <div className={`w-8 h-8 rounded-full border border-slate-100 flex items-center justify-center ${item.color} group-hover:scale-110 transition-transform`}>
+                  <ArrowUpRight size={14} />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <CyberChartsGrid 
         statusData={Object.entries(metrics.statusCount).map(([name, value]) => ({ name, value }))}
         priorityData={Object.entries(metrics.priorityCount).map(([name, value]) => ({ name, value }))}
@@ -1455,9 +1581,9 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
 
       <div className="grid grid-cols-1 gap-8">
         {/* Historical Trends */}
-        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[550px]">
+        <Card className="border-0 shadow-2xl rounded-[3rem] bg-white border border-slate-100 overflow-hidden relative break-inside-avoid flex flex-col h-[700px]">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.02]" />
-          <CardHeader className="p-10 md:p-14 border-b border-slate-50 relative z-10 shrink-0">
+          <CardHeader className="p-10 md:px-14 md:py-12 border-b border-slate-50 relative z-10 shrink-0">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-500 mb-3 flex items-center gap-2">
@@ -1497,26 +1623,31 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-10 md:p-14 pt-4 relative z-10 bg-slate-50/30 flex-1 min-h-0">
+          <CardContent className="px-10 md:px-14 py-12 relative z-10 bg-slate-50/10 flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={trendChartData}
-                margin={{ top: 20, right: 30, left: 0, bottom: 20 }}
+                margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
               >
                 <defs>
                   <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="colorResolved" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.1} />
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
+                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
                 </defs>
                 <CartesianGrid
-                  strokeDasharray="8 8"
+                  strokeDasharray="4 4"
                   vertical={false}
                   stroke="#f1f5f9"
+                  opacity={0.6}
                 />
                 <XAxis
                   dataKey="displayLabel"
@@ -1524,6 +1655,7 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
                   tickLine={false}
                   tick={{ fill: "#94a3b8", fontSize: 10, fontWeight: 800 }}
                   dy={15}
+                  padding={{ left: 20, right: 20 }}
                 />
                 <YAxis
                   yAxisId="left"
@@ -1531,11 +1663,12 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
                   tickLine={false}
                   tick={{ fill: "#94a3b8", fontSize: 10, fontWeight: 700 }}
                   dx={-10}
+                  domain={[0, (dataMax: number) => Math.max(dataMax * 1.2, 10)]}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  domain={[0, 100]}
+                  domain={[0, 110]}
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "#a855f7", fontSize: 10, fontWeight: 700 }}
@@ -1545,24 +1678,54 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
                   cursor={{ stroke: "#cbd5e1", strokeWidth: 1, strokeDasharray: "4 4" }}
                   content={({ active, payload, label }: any) => {
                     if (active && payload && payload.length) {
+                      const isFuture = payload[0]?.payload?.isProjected;
+                      const isHorizon = payload[0]?.payload?.isFarFuture;
+                      
                       return (
-                        <div className="bg-white/95 backdrop-blur-2xl border border-slate-100 rounded-[2.5rem] p-8 shadow-3xl ring-1 ring-slate-900/5 min-w-[240px]">
-                          <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
-                             <div className="w-2.5 h-2.5 rounded-full bg-brand-500 shadow-lg shadow-brand-500/50" />
-                             <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">{label}</p>
+                        <div className="bg-slate-900/95 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.4)] min-w-[300px]">
+                          <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
+                             <div className="flex items-center gap-3">
+                               <div className={`w-2.5 h-2.5 rounded-full ${isHorizon ? 'bg-indigo-400' : (isFuture ? 'bg-amber-400' : 'bg-brand-500')} shadow-[0_0_12px_rgba(99,102,241,0.8)]`} />
+                               <p className="text-[11px] font-black text-white uppercase tracking-[0.2em]">{label}</p>
+                             </div>
+                             <span className="text-[10px] font-black text-slate-500 uppercase">
+                               {isHorizon ? 'Horizonte' : (isFuture ? 'Proyección' : 'Snapshot')}
+                             </span>
                           </div>
-                          <div className="space-y-5">
-                            {payload.map((p: any, i: number) => (
-                              <div key={i} className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
-                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.name}</span>
-                                </div>
-                                <span className="text-sm font-black text-slate-800 font-mono">
-                                  {p.dataKey === 'compliance' ? `${p.value}%` : p.value}
-                                </span>
-                              </div>
-                            ))}
+                          <div className="space-y-4">
+                            {payload
+                              .filter((p: any) => p.value !== null && p.value !== undefined)
+                              .filter((p: any, index: number, self: any[]) => 
+                                p.name && self.findIndex(s => s.name === p.name) === index
+                              )
+                              .map((p: any, i: number) => {
+                                const entryColor = p.color || (p.stroke && !p.stroke.includes('url') ? p.stroke : 
+                                                 (p.name === 'Resueltos' ? '#10b981' : 
+                                                  p.name === 'Capturados' ? '#6366f1' : 
+                                                  p.name === 'Cumplimiento SLA' ? '#a855f7' : '#ef4444'));
+                                return (
+                                  <div key={i} className="flex items-center justify-between group">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-4 h-1 rounded-full opacity-60" style={{ backgroundColor: entryColor }} />
+                                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-slate-200 transition-colors">{p.name}</span>
+                                    </div>
+                                    <div className="flex items-baseline gap-1">
+                                      <span className="text-lg font-black text-white font-mono leading-none">
+                                        {p.name === 'Cumplimiento SLA' ? `${p.value}%` : p.value}
+                                      </span>
+                                      {p.name === 'Cumplimiento SLA' && <span className="text-[8px] font-black text-brand-400 uppercase">SLA</span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                          <div className="mt-6 pt-4 border-t border-white/5">
+                            <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-slate-500">
+                               <span>Estado Operativo</span>
+                               <span className={isHorizon ? "text-indigo-400" : (isFuture ? "text-amber-400" : "text-emerald-400")}>
+                                 {isHorizon ? "Horizonte" : (isFuture ? "Proyectado" : "Normalizado")}
+                               </span>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1574,41 +1737,115 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
                   verticalAlign="top"
                   align="right"
                   wrapperStyle={{ paddingBottom: "40px" }}
-                  content={({ payload }: any) => (
-                    <div className="flex items-center justify-end gap-8 mb-8">
-                       {payload.map((entry: any, index: number) => (
-                         <div key={index} className="flex items-center gap-3 group cursor-pointer">
-                           <div className="w-3 h-3 rounded-full shadow-sm group-hover:scale-125 transition-transform" style={{ backgroundColor: entry.color }} />
-                           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest group-hover:text-slate-900 transition-colors">{entry.value}</span>
-                         </div>
-                       ))}
-                    </div>
-                  )}
+                  content={({ payload }: any) => {
+                    const filteredPayload = payload
+                      .filter((entry: any, idx: number, self: any[]) => 
+                        self.findIndex(s => s.value === entry.value) === idx
+                      );
+
+                    return (
+                      <div className="flex flex-wrap items-center justify-end gap-x-8 gap-y-2 mb-8">
+                        {filteredPayload.map((entry: any, index: number) => {
+                          const isHidden = hiddenSeries.includes(entry.value);
+                          return (
+                            <div 
+                              key={index} 
+                              onClick={() => toggleSeries(entry.value)}
+                              className={`flex items-center gap-3 group cursor-pointer transition-all ${isHidden ? 'opacity-30 scale-95' : 'opacity-70 hover:opacity-100'}`}
+                            >
+                              <div 
+                                className="h-0.5 w-4 rounded-full transition-colors" 
+                                style={{ backgroundColor: isHidden ? '#cbd5e1' : (entry.color === 'url(#colorTotal)' ? '#6366f1' : (entry.color === 'url(#colorResolved)' ? '#10b981' : entry.color)) }} 
+                              />
+                              <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${isHidden ? 'text-slate-400 line-through decoration-brand-400' : 'text-slate-500 group-hover:text-slate-900'}`}>
+                                {entry.value}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }}
                 />
                 <Area
                   yAxisId="left"
                   type="monotone"
-                  dataKey="count"
+                  dataKey="past_count"
                   name="Capturados"
                   stroke="#6366f1"
-                  strokeWidth={6}
-                  fillOpacity={1}
+                  strokeWidth={2}
                   fill="url(#colorTotal)"
-                  activeDot={{ r: 10, strokeWidth: 0, fill: "#6366f1", shadow: "0 0 20px rgba(99,102,241,0.5)" }}
-                  dot={{ r: 4, fill: "#fff", stroke: "#6366f1", strokeWidth: 2 }}
+                  fillOpacity={1}
+                  connectNulls
+                  hide={hiddenSeries.includes("Capturados")}
                 />
                 <Area
                   yAxisId="left"
                   type="monotone"
-                  dataKey="resolved"
+                  dataKey="proj_count"
+                  name="Capturados"
+                  stroke="#6366f1"
+                  strokeWidth={2}
+                  fill="url(#colorTotal)"
+                  fillOpacity={0.3}
+                  strokeDasharray="5 5"
+                  connectNulls
+                  legendType="none"
+                  hide={hiddenSeries.includes("Capturados")}
+                />
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="past_resolved"
                   name="Resueltos"
                   stroke="#10b981"
-                  strokeWidth={4}
-                  fillOpacity={1}
+                  strokeWidth={2}
                   fill="url(#colorResolved)"
-                  activeDot={{ r: 8, strokeWidth: 0, fill: "#10b981" }}
-                  dot={{ r: 3, fill: "#fff", stroke: "#10b981", strokeWidth: 2 }}
+                  fillOpacity={1}
+                  connectNulls
+                  hide={hiddenSeries.includes("Resueltos")}
                 />
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="proj_resolved"
+                  name="Resueltos"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  fill="url(#colorResolved)"
+                  fillOpacity={0.2}
+                  strokeDasharray="5 5"
+                  connectNulls
+                  legendType="none"
+                  hide={hiddenSeries.includes("Resueltos")}
+                />
+
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="past_compliance"
+                  name="Cumplimiento SLA"
+                  stroke="#a855f7"
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: "#a855f7", strokeWidth: 2, stroke: "#fff" }}
+                  activeDot={{ r: 6, fill: "#a855f7", stroke: "#fff", strokeWidth: 2 }}
+                  connectNulls
+                  hide={hiddenSeries.includes("Cumplimiento SLA")}
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="proj_compliance"
+                  name="Cumplimiento SLA"
+                  stroke="#a855f7"
+                  strokeWidth={3}
+                  strokeDasharray="8 4"
+                  dot={{ r: 4, fill: "#fff", strokeWidth: 2, stroke: "#a855f7" }}
+                  connectNulls
+                  legendType="none"
+                  hide={hiddenSeries.includes("Cumplimiento SLA")}
+                />
+
                 <Line
                   yAxisId="left"
                   type="monotone"
@@ -1617,17 +1854,24 @@ export default function CyberView({ data, title, globalMetrics }: Props) {
                   stroke="#f43f5e"
                   strokeWidth={3}
                   dot={{ r: 4, fill: "#f43f5e", strokeWidth: 0 }}
-                  activeDot={{ r: 6, fill: "#f43f5e" }}
+                  activeDot={{ r: 7, fill: "#f43f5e" }}
+                  hide={hiddenSeries.includes("Críticos")}
                 />
+
+                {/* Benchmark SLA */}
                 <Line
                   yAxisId="right"
                   type="stepAfter"
-                  dataKey="compliance"
-                  name="Cumplimiento SLA"
+                  dataKey="val_compliance"
+                  name="Benchmark SLA"
                   stroke="#a855f7"
-                  strokeWidth={3}
-                  strokeDasharray="12 6"
+                  strokeWidth={2}
+                  strokeDasharray="10 5"
+                  opacity={0.3}
                   dot={false}
+                  activeDot={false}
+                  legendType="none"
+                  hide={hiddenSeries.includes("Benchmark SLA") || hiddenSeries.includes("Cumplimiento SLA")}
                 />
               </ComposedChart>
             </ResponsiveContainer>

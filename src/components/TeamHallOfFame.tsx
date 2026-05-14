@@ -32,8 +32,8 @@ export const TeamHallOfFame: React.FC<Props> = ({ performers, onSelect }) => {
             <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-1">
                {[1, 2, 3].map(i => <div key={i} className="w-4 h-1 bg-slate-200 rounded-full" />)}
             </div>
-            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
-              <Medal size={24} className="text-slate-400" />
+            <div className="w-16 h-16 bg-brand-50 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
+              <Medal size={24} className="text-brand-500" />
             </div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Puesto #2</p>
             <h3 className="text-2xl font-black text-slate-900 mb-6">{top3[1].name}</h3>
@@ -97,8 +97,8 @@ export const TeamHallOfFame: React.FC<Props> = ({ performers, onSelect }) => {
             <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-1">
                {[1, 2].map(i => <div key={i} className="w-4 h-1 bg-slate-200 rounded-full" />)}
             </div>
-            <div className="w-14 h-14 bg-slate-50 rounded-full flex items-center justify-center mb-5 border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
-              <Award size={22} className="text-slate-400" />
+            <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mb-5 border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
+              <Award size={22} className="text-emerald-500" />
             </div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Puesto #3</p>
             <h3 className="text-xl font-black text-slate-900 mb-5">{top3[2].name}</h3>

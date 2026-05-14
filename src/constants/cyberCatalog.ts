@@ -104,8 +104,25 @@ export const SCOPE_MAPPING: Record<string, string> = {
   'entrenamiento': 'Security Awareness',
 };
 
+export const AMBITO_REVERSE_MAPPING: Record<string, string> = {
+  mfa: 'IAM (Identity & Access Management)',
+  'cuentas de usuario': 'IAM (Identity & Access Management)',
+  'security platform': 'Operations Management',
+  hotfix: 'Vulnerability Management',
+  troubleshooting: 'Operations Management',
+  'excepción zscaler': 'Network Security',
+  'excepción paloalto': 'Network Security',
+  'aprobación de puertos': 'Network Security',
+  'bloqueos de maquinas': 'Application Security',
+  'aplcaciones no autorizadas': 'Application Security',
+  brigth: 'Governance & Compliance',
+  presentaciones: 'Governance & Compliance',
+  'trafico sospechoso': 'Network Security',
+  'reglas de red': 'Network Security',
+  proyectos: 'Operations Management',
+};
+
 export const AMBITO_GROUPS: Record<string, string> = {
-  usb: 'Dispositivos',
   proyectos: 'Gestión',
   troubleshooting: 'Soporte',
   mfa: 'Seguridad/IAM',

@@ -55,7 +55,10 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
         dateKey: findKey(['Fecha', 'Fecha de Creación', 'Created', 'Date', 'Apertura', 'Fecha Solicitud']),
         closingDateKey: findKey(['Fecha de Cierre', 'Cierre', 'Closed Date', 'Fecha Solución', 'Finalización']),
         commitmentDateKey: findKey(['Fecha de Compromiso', 'Compromiso', 'Due Date', 'Vencimiento Estimado']),
-        category: findKey(['ÁMBITO', 'Categoría', 'Clasificación', 'Tipo', 'Area', 'Ambito', 'Modulo'])
+        category: findKey(['ÁMBITO', 'Categoría', 'Clasificación', 'Tipo', 'Area', 'Ambito', 'Modulo']),
+        impact: findKey(['Impacto', 'Impact']),
+        urgency: findKey(['Urgencia', 'Urgency']),
+        reopen: findKey(['Reapertura', 'Reopen', 'Reopened'])
       }
     };
   }, [data]);
@@ -250,7 +253,7 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
     }));
     
     sheets.push({
-      name: 'ADN Operativo Squad',
+      name: 'ADN Operativo TISAL',
       data: kpiData,
       title: `KPIs Estratégicos del Squad - ${title}`,
       appliedFilters: filters
@@ -345,7 +348,7 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
              <div className="h-2 w-2 rounded-full bg-slate-900 animate-pulse shadow-[0_0_12px_rgba(15,23,42,0.5)]" />
              <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em]">Auditoría Operativa & Análisis Estratégico</span>
           </div>
-          <h2 className="text-5xl md:text-7xl font-black text-slate-950 tracking-tight leading-[0.8]">{title}<span className="text-brand-600">.</span></h2>
+          <h2 className="text-5xl md:text-7xl font-black text-slate-950 tracking-tight leading-[0.8]">{title}<span className="text-tisal-gold">.</span></h2>
           <p className="text-lg font-bold text-slate-500 max-w-2xl leading-relaxed">{subtitle}</p>
         </div>
         
@@ -477,72 +480,116 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
 
               <div className="lg:col-span-8">
                 <PremiumCard className="border-0 shadow-2xl rounded-[3.5rem] bg-white border border-slate-100 overflow-hidden h-full">
-                   <CardHeader className="bg-slate-50/10 p-12 border-b border-slate-100/50 flex justify-between items-center">
+                   <CardHeader className="bg-slate-50/10 p-12 border-b border-slate-100/50 flex justify-between items-center bg-gradient-to-br from-white to-slate-50/30">
                       <div className="space-y-1 text-left">
-                        <p className="text-[9px] font-black text-brand-500 uppercase tracking-[0.4em]">Analytics Engine 5.0</p>
-                        <h4 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">Comparativa <br/>de <span className="text-brand-600">Alta</span> Dirección</h4>
+                        <p className="text-[9px] font-black text-brand-500 uppercase tracking-[0.4em]">Métrica Maestra de Control</p>
+                        <h4 className="text-3xl font-black text-slate-900 tracking-tighter uppercase leading-[1.1]">Gestión <br/>y <span className="text-brand-600">Auditoría</span> Ejecutiva</h4>
                       </div>
                       <div className="hidden md:flex items-center gap-4">
-                         <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest bg-slate-100 px-4 py-2 rounded-full border border-slate-200">Auditoría Individual</span>
+                         <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-2">
+                           <ShieldAlert size={14} className="text-brand-500" />
+                           <span className="text-[9px] font-black uppercase text-slate-900 tracking-widest">Validación de Datos</span>
+                         </div>
                       </div>
                    </CardHeader>
                    <CardContent className="p-0">
                       <div className="overflow-x-auto text-left scrollbar-thin scrollbar-thumb-slate-200">
-                         <table className="w-full border-collapse">
-                            <thead className="bg-[#fbfcff]/60 backdrop-blur-sm sticky top-0 z-10 border-b border-slate-100">
+                         <table className="w-full border-separate border-spacing-y-4 px-6 md:px-10">
+                            <thead className="bg-slate-50/80 backdrop-blur-md sticky top-0 z-30">
                                <tr>
-                                  <th className="px-10 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Responsable Operativo</th>
-                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Volumen</th>
-                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-center text-slate-400">Efficiency Score</th>
-                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-center text-slate-400">MTTR (d)</th>
-                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500">Resolved</th>
-                                  <th className="px-6 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-brand-500">SLA %</th>
-                                  <th className="px-10 py-8 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 text-right">Estado</th>
+                                  <th className="px-6 py-6 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 text-left">Responsable Operativo</th>
+                                  <th className="px-4 py-6 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 text-center">Volumen</th>
+                                  <th className="px-4 py-6 text-[9px] font-black uppercase tracking-[0.25em] text-center text-slate-400">Eficiencia</th>
+                                  <th className="px-4 py-6 text-[9px] font-black uppercase tracking-[0.25em] text-center text-indigo-500">MTTR (d)</th>
+                                  <th className="px-4 py-6 text-[9px] font-black uppercase tracking-[0.25em] text-emerald-500 text-center">Resueltos</th>
+                                  <th className="px-4 py-6 text-[9px] font-black uppercase tracking-[0.25em] text-brand-500 text-center">SLA %</th>
+                                  <th className="px-6 py-6 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 text-right">Estatus</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50 bg-white">
-                               {metrics.collabList.map((c, i) => (
-                                  <motion.tr 
-                                     key={i} 
-                                     initial={{ opacity: 0, x: -10 }}
-                                     animate={{ opacity: 1, x: 0 }}
-                                     transition={{ delay: i * 0.05 }}
-                                     className="hover:bg-slate-50/50 transition-all cursor-pointer group"
-                                     onClick={() => setSelectedMember(c)}
-                                  >
-                                     <td className="px-10 py-7 font-black text-slate-900 text-sm">
-                                        <div className="flex items-center gap-5">
-                                           <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-[10px] font-black shadow-sm border border-white transition-transform group-hover:scale-110 ${String(c.name).includes('Promedio') ? 'bg-slate-100 text-slate-400' : 'bg-brand-600 text-white shadow-brand-200'}`}>
-                                              {String(c.name).charAt(0)}
-                                           </div>
-                                           <div className="flex flex-col">
-                                              <span className="group-hover:text-brand-600 transition-colors uppercase tracking-tight font-black">{c.name}</span>
-                                              {c.isBurnoutRisk && <span className="text-[8px] text-rose-500 font-black uppercase tracking-widest flex items-center gap-1 mt-0.5"><Flame size={10} className="animate-pulse" /> Riesgo de Fatiga</span>}
-                                           </div>
-                                        </div>
-                                     </td>
-                                     <td className="px-6 py-7 font-mono text-slate-400 font-bold text-sm tracking-tight">{c.total}</td>
-                                     <td className="px-6 py-7 text-center">
-                                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full border-4 border-slate-50 bg-white shadow-lg shadow-slate-100">
-                                          <span className="text-sm font-black text-brand-600">{c.efficiencyScore}</span>
-                                        </div>
-                                     </td>
-                                     <td className="px-6 py-7 text-center font-mono text-[11px] font-bold text-slate-500 uppercase tracking-tighter">{c.mttrDisplay}</td>
-                                     <td className="px-6 py-7 font-mono text-emerald-600 font-black text-sm">{c.resolved}</td>
-                                     <td className="px-6 py-7 font-mono text-brand-600 font-black text-sm">{c.compliance}%</td>
-                                     <td className="px-10 py-7 text-right">
-                                        <span className={`px-5 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-[0.1em] border shadow-sm ${
-                                           c.estado.includes('Elite') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                                           c.estado.includes('Óptimo') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 
-                                           'bg-rose-50 text-rose-600 border-rose-100'
-                                        }`}>
-                                           {c.estado}
-                                        </span>
-                                     </td>
-                                  </motion.tr>
-                               ))}
-                            </tbody>
-                         </table>
+                            <tbody className="bg-transparent">
+                               {metrics.collabList.map((c, i) => {
+                                  const isAverage = String(c.name).includes('Promedio');
+                                  const score = c.efficiencyScore;
+                                  
+                                  const getPerfTheme = (s: number) => {
+                                    if (s >= 85) return { gradient: 'from-emerald-500 to-teal-500', text: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' };
+                                    if (s >= 70) return { gradient: 'from-brand-500 to-indigo-500', text: 'text-brand-600', bg: 'bg-brand-50', border: 'border-brand-100' };
+                                    if (s >= 50) return { gradient: 'from-amber-500 to-orange-500', text: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' };
+                                    return { gradient: 'from-rose-500 to-pink-500', text: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100' };
+                                  };
+
+                                  const theme = getPerfTheme(score);
+                                  const avatarGradient = isAverage ? 'from-tisal-gold to-brand-500' : theme.gradient;
+
+                                  return (
+                                    <motion.tr 
+                                       key={i} 
+                                       initial={{ opacity: 0, y: 10 }}
+                                       animate={{ opacity: 1, y: 0 }}
+                                       transition={{ delay: i * 0.05 }}
+                                       className="hover:scale-[1.01] transition-all cursor-pointer group bg-white shadow-[0_4px_20px_rgba(0,0,0,0.02)] rounded-3xl"
+                                       onClick={() => setSelectedMember(c)}
+                                    >
+                                       <td className="px-6 py-6 rounded-l-3xl border-y border-l border-slate-50 group-hover:border-brand-100 group-hover:bg-slate-50/30">
+                                          <div className="flex items-center gap-5">
+                                             <div className={`relative w-12 h-12 rounded-2xl bg-gradient-to-br ${avatarGradient} p-[2px] shadow-lg group-hover:rotate-6 transition-transform duration-500`}>
+                                                <div className="w-full h-full rounded-[0.9rem] bg-white flex items-center justify-center overflow-hidden">
+                                                   <span className={`text-base font-black bg-gradient-to-br ${avatarGradient} bg-clip-text text-transparent`}>
+                                                      {String(c.name).charAt(0)}
+                                                   </span>
+                                                </div>
+                                             </div>
+                                             <div className="flex flex-col">
+                                                <span className="text-sm font-black text-slate-800 uppercase tracking-tight group-hover:text-brand-600 transition-colors uppercase">{c.name}</span>
+                                                {c.isBurnoutRisk && (
+                                                  <span className="text-[8px] text-rose-500 font-black uppercase tracking-widest flex items-center gap-1 mt-1">
+                                                     <div className="w-1 h-1 rounded-full bg-rose-500 animate-ping" />
+                                                     Riesgo de Fatiga
+                                                  </span>
+                                                )}
+                                             </div>
+                                          </div>
+                                       </td>
+                                       <td className="px-4 py-6 text-center border-y border-slate-50 group-hover:bg-slate-50/30">
+                                          <span className="text-sm font-black text-slate-500 font-mono italic">{c.total}</span>
+                                       </td>
+                                       <td className="px-4 py-6 text-center border-y border-slate-50 group-hover:bg-slate-50/30">
+                                          <div className="flex items-center justify-center">
+                                             <div className={`w-10 h-10 rounded-full border-4 ${theme.border} flex items-center justify-center bg-white shadow-sm`}>
+                                                <span className={`text-[11px] font-black ${theme.text}`}>{score}</span>
+                                             </div>
+                                          </div>
+                                       </td>
+                                       <td className="px-4 py-6 text-center border-y border-slate-50 group-hover:bg-slate-50/30">
+                                          <span className="text-xs font-black text-slate-500 font-mono">{c.mttrDisplay}</span>
+                                       </td>
+                                       <td className="px-4 py-6 text-center border-y border-slate-50 group-hover:bg-slate-50/30">
+                                          <span className="text-sm font-black text-emerald-600 font-mono">{c.resolved}</span>
+                                       </td>
+                                       <td className="px-4 py-6 text-center border-y border-slate-50 group-hover:bg-slate-50/30">
+                                          <span className="text-sm font-black text-brand-600 font-mono">{c.compliance}%</span>
+                                       </td>
+                                       <td className="px-6 py-6 text-right rounded-r-3xl border-y border-r border-slate-50 group-hover:border-brand-100 group-hover:bg-slate-50/30">
+            <div className="flex justify-end pr-2">
+               <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.15em] border-2 flex items-center gap-2.5 shadow-xl transition-all group-hover:scale-105 ${
+                  c.estado.includes('Elite') ? 'bg-emerald-500/5 text-emerald-600 border-emerald-400/30' : 
+                  c.estado.includes('Óptimo') ? 'bg-brand-500/5 text-brand-600 border-brand-400/30' : 
+                  'bg-rose-500/5 text-rose-600 border-rose-400/30'
+               }`}>
+                  <div className={`w-2 h-2 rounded-full animate-pulse ${
+                    c.estado.includes('Elite') ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 
+                    c.estado.includes('Óptimo') ? 'bg-brand-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]' : 
+                    'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]'
+                  }`} />
+                  {c.estado.split(' ').pop()}
+               </div>
+            </div>
+                                       </td>
+                                    </motion.tr>
+                                  );
+                                })}
+                             </tbody>
+                          </table>
                       </div>
                    </CardContent>
                 </PremiumCard>
@@ -622,7 +669,13 @@ export default function TeamPerformanceView({ data, title = "Desempeño de Equip
       )}
 
       {currentTab === 'vs_analytics' && (
-        <VSPerformanceAnalytics key={currentTab} metrics={metrics} allData={filteredData} keysInfo={keysInfo} />
+        <VSPerformanceAnalytics 
+          key={currentTab} 
+          metrics={metrics} 
+          allData={filteredData} 
+          keysInfo={keysInfo} 
+          onShowMetric={(type) => setActiveMetric(type)}
+        />
       )}
 
       {currentTab === 'intelligence' && (

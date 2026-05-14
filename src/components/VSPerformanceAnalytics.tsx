@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, User, Target, TrendingUp, Zap, Clock, Shield, Search, Filter, 
-  ChevronRight, ArrowRight, Activity, Percent, BarChart, Maximize2,
+  ChevronRight, ArrowRight, Activity, Percent, BarChart, Maximize2, X, Calculator,
   GitCompare, Trophy, AlertTriangle, Scale, BrainCircuit, ArrowDownRight, ArrowUpRight,
   Download, FileText, Network, Layers, Calendar, CheckCircle2, MoveRight, Cpu, PieChart
 } from 'lucide-react';
@@ -17,10 +17,13 @@ import {
 import { parse, isValid, format, subDays, isSameDay, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+import { MetricType } from './AnalyticalBreakdownPanel';
+
 interface Props {
   metrics: any;
   allData: any[];
   keysInfo?: any;
+  onShowMetric?: (type: MetricType) => void;
 }
 
 const AnimatedCounter: React.FC<{ value: number; duration?: number; decimals?: number; suffix?: string }> = ({ value, duration = 0.8, decimals = 0, suffix = '' }) => {
@@ -55,7 +58,7 @@ const AnimatedCounter: React.FC<{ value: number; duration?: number; decimals?: n
   return <>{displayValue.toFixed(decimals)}{suffix}</>;
 };
 
-export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keysInfo }) => {
+export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keysInfo, onShowMetric }) => {
   const [selectedA, setSelectedA] = useState<string>('all');
   const [selectedB, setSelectedB] = useState<string>('all');
   const [radarViewType, setRadarViewType] = useState<'individual' | 'team'>('individual');
@@ -65,7 +68,9 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
   const [timeRange, setTimeRange] = useState<'1d' | '7d' | '15d' | '30d' | '90d' | '365d'>('30d');
   const [selectedMatrices, setSelectedMatrices] = useState<string[]>(['portfolio', 'specialization']);
   const [heatmapView, setHeatmapView] = useState<'A' | 'B'>('A');
+  const [portfolioAxis, setPortfolioAxis] = useState<string>('Categoria');
 
+  const [activeDelta, setActiveDelta] = useState<any | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [modalData, setModalData] = useState<any[]>([]);
@@ -73,69 +78,79 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
   const collaborators = metrics.collabList;
 
   const compareData = useMemo(() => {
-    // ... helper for data range
+    // --- Helper for date range resilience ---
     const parseDateResilient = (val: any): Date | null => {
       if (!val) return null;
       if (val instanceof Date) return isValid(val) ? val : null;
-      
-      if (typeof val === 'number') { // Excel serial date
+      if (typeof val === 'number') { 
         const d = new Date((val - 25569) * 86400 * 1000);
         return isValid(d) ? d : null;
       }
-      
       const str = String(val).trim();
       if (!str) return null;
-
-      // Try native first
       const native = new Date(str);
       if (isValid(native)) return native;
-
-      // Try formats
       const formats = ['dd/MM/yyyy', 'dd-MM-yyyy', 'dd.MM.yyyy', 'yyyy-MM-dd', 'MM/dd/yyyy'];
       for (const f of formats) {
         const p = parse(str, f, new Date());
         if (isValid(p)) return p;
       }
-
-      const sanitized = str.replace(/[.-]/g, '/');
-      const p2 = new Date(sanitized);
-      if (isValid(p2)) return p2;
-
       return null;
     };
 
-    const dates = allData.map(r => parseDateResilient(r[keysInfo?.dateKey])).filter(d => d !== null) as Date[];
+    // --- Performance Optimization: Pre-process important fields ---
+    const dateKey = keysInfo?.dateKey;
+    const closingDateKey = keysInfo?.closingDateKey || dateKey;
+    const commitmentDateKey = keysInfo?.commitmentDateKey;
+    const assigneeKey = keysInfo?.assignee;
+    const statusKey = keysInfo?.status;
+    const delayKey = keysInfo?.delay;
+    const impactKey = keysInfo?.impact || 'Impacto';
+    const urgencyKey = keysInfo?.urgency || 'Urgencia';
+    const priorityKey = keysInfo?.priority || 'Prioridad';
+    const reopenKey = keysInfo?.reopen || 'Reapertura';
+
+    // 1. One-pass data enrichment with parsed dates
+    const enrichedData = allData.map(r => ({
+      ...r,
+      _date: parseDateResilient(r[dateKey]),
+      _closingDate: parseDateResilient(r[closingDateKey]),
+      _commitmentDate: parseDateResilient(r[commitmentDateKey]),
+      _assignee: String(r[assigneeKey] || 'Sin Asignar'),
+      _status: String(r[statusKey] || '').toLowerCase(),
+      _isClosed: String(r[statusKey] || '').toLowerCase().includes('cerrado') || String(r[statusKey] || '').toLowerCase().includes('closed') || String(r[statusKey] || '').toLowerCase().includes('finalizado'),
+      _age: Number(r['AGING'] || r[delayKey] || 0)
+    }));
+
+    const dates = enrichedData.map(r => r._date).filter(Boolean) as Date[];
     const maxDataDate = dates.length > 0 ? new Date(Math.max(...dates.map(d => d.getTime()))) : null;
     const isDataStale = maxDataDate ? subDays(new Date(), 30) > maxDataDate : false;
 
-    const memberA = collaborators.find((c: any) => c.name === selectedA) || { 
-      name: 'Equipo (Promedio)', 
-      efficiencyScore: metrics.avgEfficiency,
-      total: metrics.total / metrics.teamSize,
-      resolved: metrics.resolved / metrics.teamSize,
-      compliance: metrics.timeCompliance,
-      rawMttr: metrics.avgMTTR || 0,
-      estado: 'Squad',
-      radarData: metrics.radarData.map((r: any) => ({ subject: r.subject, A: r.A }))
+    // 2. Member data extraction
+    const getMemberMeta = (name: string) => {
+      const collab = collaborators.find((c: any) => c.name === name);
+      if (collab) return collab;
+      // Default to team average
+      return { 
+        name: name === 'all' ? 'Equipo (Promedio)' : name, 
+        efficiencyScore: Math.round(metrics.avgEfficiency),
+        total: Math.round(metrics.total / (metrics.teamSize || 1) * 10) / 10,
+        resolved: Math.round(metrics.resolved / (metrics.teamSize || 1) * 10) / 10,
+        compliance: Math.round(metrics.timeCompliance),
+        rawMttr: metrics.avgMTTR || 0,
+        estado: 'Squad',
+        radarData: metrics.radarData.map((r: any) => ({ subject: r.subject, A: r.A }))
+      };
     };
 
-    const memberB = collaborators.find((c: any) => c.name === selectedB) || { 
-      name: 'Equipo (Promedio)', 
-      efficiencyScore: metrics.avgEfficiency,
-      total: metrics.total / metrics.teamSize,
-      resolved: metrics.resolved / metrics.teamSize,
-      compliance: metrics.timeCompliance,
-      rawMttr: metrics.avgMTTR || 0,
-      estado: 'Squad',
-      radarData: metrics.radarData.map((r: any) => ({ subject: r.subject, A: r.A }))
-    };
-
+    const memberA = getMemberMeta(selectedA);
+    const memberB = getMemberMeta(selectedB);
     const squadAvg = {
       name: 'Squad Average',
-      efficiencyScore: metrics.avgEfficiency,
-      total: metrics.total / metrics.teamSize,
-      resolved: metrics.resolved / metrics.teamSize,
-      compliance: metrics.timeCompliance,
+      efficiencyScore: Math.round(metrics.avgEfficiency),
+      total: Math.round(metrics.total / (metrics.teamSize || 1) * 10) / 10,
+      resolved: Math.round(metrics.resolved / (metrics.teamSize || 1) * 10) / 10,
+      compliance: Math.round(metrics.timeCompliance),
       rawMttr: metrics.avgMTTR || 0,
       radarData: metrics.radarData
     };
@@ -147,15 +162,19 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
       { name: 'Resueltos', A: memberA.resolved, B: memberB.resolved, squad: squadAvg.resolved }
     ];
 
-    const radarA = memberA.radarData || chartData.map(d => ({ subject: d.name, A: d.A }));
-    const radarCombined = radarA.map((r: any, idx: number) => {
+    const radarCombined = (memberA.radarData || []).map((r: any, idx: number) => {
       const subjectMap: Record<string, string> = {
         'Throughput': 'Productividad',
         'Efficiency': 'Eficiencia',
         'Compliance': 'SLA',
         'Velocity': 'Velocidad',
         'Quality': 'Calidad',
-        'Reliability': 'Confiabilidad'
+        'Reliability': 'Confiabilidad',
+        'SLA Speed': 'Velocidad SLA',
+        'Resolution': 'Resolución',
+        'Load Balance': 'Balance Carga',
+        'Agility': 'Agilidad',
+        'Complexity': 'Complejidad'
       };
       
       return {
@@ -166,160 +185,150 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
       };
     });
 
-    // auditMetrics were calculated above
-    const auditA = memberA;
-    const auditB = memberB;
-
-    // --- Trend Data Generation (Date-based) ---
+    // --- Trend Data Generation (Optimized binning) ---
     const getTrendData = () => {
       const now = startOfDay(new Date());
       let daysToLookBack = 30;
-      let stepSize = 1; // 1 for daily, 7 for weekly
+      let stepSize = 1;
       let labelFormat = 'dd MMM';
 
       if (timeRange === '7d') daysToLookBack = 7;
       else if (timeRange === '15d') daysToLookBack = 15;
       else if (timeRange === '30d') daysToLookBack = 30;
-      else if (timeRange === '90d') {
-        daysToLookBack = 90;
-        stepSize = 7;
-        labelFormat = "'Sem' w";
-      } else if (timeRange === '365d') {
-        daysToLookBack = 365;
-        stepSize = 30; // Monthly
-        labelFormat = 'MMM yy';
-      }
+      else if (timeRange === '90d') { daysToLookBack = 90; stepSize = 7; labelFormat = "'Sem' w"; }
+      else if (timeRange === '365d') { daysToLookBack = 365; stepSize = 30; labelFormat = 'MMM yy'; }
+
+      const anchorDate = (!enrichedData.some(r => r._date && r._date >= subDays(now, daysToLookBack)) && maxDataDate) 
+        ? startOfDay(maxDataDate) 
+        : now;
 
       const points = [];
-      const statusKey = keysInfo?.statusKey || keysInfo?.status;
-      const delayKey = keysInfo?.delay;
-
-      // Check if we have data in the standard "Now" window
-      const hasRecentData = allData.some(r => {
-        const d = parseDateResilient(r[keysInfo?.dateKey]);
-        return d && d >= subDays(now, daysToLookBack);
-      });
-
-      // If no recent data but we have old data, pivot to the latest data window
-      const anchorDate = (!hasRecentData && maxDataDate) ? startOfDay(maxDataDate) : now;
-
       for (let i = daysToLookBack; i >= 0; i -= stepSize) {
         const periodEndDate = startOfDay(subDays(anchorDate, i));
         const periodStartDate = startOfDay(subDays(periodEndDate, stepSize - 1));
         
-        // Entrada: Tickets creados en este periodo
-        const entries = allData.filter(r => {
-          const d = parseDateResilient(r[keysInfo?.dateKey]);
-          return d && d >= periodStartDate && d <= periodEndDate;
-        });
+        const periodData = enrichedData.filter(r => r._date && r._date >= periodStartDate && r._date <= periodEndDate);
+        const periodClosed = enrichedData.filter(r => r._closingDate && r._closingDate >= periodStartDate && r._closingDate <= periodEndDate && r._isClosed);
+        const periodCommit = enrichedData.filter(r => r._commitmentDate && r._commitmentDate >= periodStartDate && r._commitmentDate <= periodEndDate);
 
-        // Salida: Tickets cerrados en este periodo (usando closingDateKey)
-        const outputs = allData.filter(r => {
-          const d = parseDateResilient(r[keysInfo?.closingDateKey] || r[keysInfo?.dateKey]);
-          const status = String(r[statusKey] || '').toLowerCase();
-          return d && d >= periodStartDate && d <= periodEndDate && status.includes('cerrado');
-        });
+        const filterMember = (data: any[], memberName: string) => 
+          memberName === 'all' ? data : data.filter(r => r._assignee === memberName);
 
-        // Compromisos: Tickets que debían cerrarse en este periodo
-        const commitments = allData.filter(r => {
-          const d = parseDateResilient(r[keysInfo?.commitmentDateKey]);
-          return d && d >= periodStartDate && d <= periodEndDate;
-        });
-
-        const ticketsA_Entry = entries.filter(r => selectedA === 'all' || String(r[keysInfo?.assignee]) === selectedA);
-        const ticketsB_Entry = entries.filter(r => selectedB === 'all' || String(r[keysInfo?.assignee]) === selectedB);
-
-        const ticketsA_Out = outputs.filter(r => selectedA === 'all' || String(r[keysInfo?.assignee]) === selectedA);
-        const ticketsB_Out = outputs.filter(r => selectedB === 'all' || String(r[keysInfo?.assignee]) === selectedB);
-
-        const ticketsA_Commit = commitments.filter(r => selectedA === 'all' || String(r[keysInfo?.assignee]) === selectedA);
-        const ticketsB_Commit = commitments.filter(r => selectedB === 'all' || String(r[keysInfo?.assignee]) === selectedB);
+        const tA_Entry = filterMember(periodData, selectedA);
+        const tB_Entry = filterMember(periodData, selectedB);
+        const tA_Out = filterMember(periodClosed, selectedA);
+        const tB_Out = filterMember(periodClosed, selectedB);
 
         points.push({
           name: stepSize >= 7 
             ? `${format(periodStartDate, 'dd/MM')} - ${format(periodEndDate, 'dd/MM')}`
             : format(periodEndDate, labelFormat, { locale: es }),
-          entryA: ticketsA_Entry.length,
-          entryB: ticketsB_Entry.length,
-          outA: ticketsA_Out.length,
-          outB: ticketsB_Out.length,
-          commitA: ticketsA_Commit.length,
-          commitB: ticketsB_Commit.length,
-          // Legacy keys for safety
-          A: ticketsA_Entry.length,
-          B: ticketsB_Entry.length,
-          resolvedA: ticketsA_Out.length,
-          resolvedB: ticketsB_Out.length
+          entryA: tA_Entry.length,
+          entryB: tB_Entry.length,
+          outA: tA_Out.length,
+          outB: tB_Out.length,
+          A: tA_Entry.length,
+          B: tB_Entry.length
         });
       }
       return points;
     };
 
-    // --- Ambitos / Category Distribution ---
+    // --- Category Distribution (Optimized) ---
     const getCategoryData = () => {
-      const catKey = keysInfo?.category || 'ÁMBITO';
-      const now = startOfDay(new Date());
-      const rangeDays = timeRange === '7d' ? 7 : timeRange === '15d' ? 15 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 365;
-      const startDate = subDays(now, rangeDays);
+      let catKey = keysInfo?.category || 'ÁMBITO';
+      if (portfolioAxis === 'Subcategoria') catKey = keysInfo?.subcategory || 'Subcategoria';
+      else if (portfolioAxis === 'Impacto') catKey = impactKey;
+      else if (portfolioAxis === 'Prioridad') catKey = priorityKey;
+      else if (portfolioAxis === 'Urgencia') catKey = urgencyKey;
+      else if (portfolioAxis === 'Reapertura') catKey = reopenKey;
+      else if (portfolioAxis === 'Tercer Nivel') catKey = keysInfo?.level3 || 'Categoría de tercer nivel';
 
-      // Filter data by time range first
-      const hasRecentData = allData.some(r => {
-        const d = parseDateResilient(r[keysInfo?.dateKey]);
-        return d && d >= subDays(now, rangeDays);
-      });
-      const anchorDate = (!hasRecentData && maxDataDate) ? startOfDay(maxDataDate) : now;
+      const rangeDays = timeRange === '7d' ? 7 : timeRange === '15d' ? 15 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 365;
+      const anchorDate = (!enrichedData.some(r => r._date && r._date >= subDays(startOfDay(new Date()), rangeDays)) && maxDataDate) 
+        ? startOfDay(maxDataDate) 
+        : startOfDay(new Date());
       const periodStart = subDays(anchorDate, rangeDays);
 
-      const filteredData = allData.filter(r => {
-        const d = parseDateResilient(r[keysInfo?.dateKey]);
-        return d && d >= periodStart && d <= anchorDate;
+      const filtered = enrichedData.filter(r => r._date && r._date >= periodStart && r._date <= anchorDate);
+      
+      const counts: Record<string, { A: number, B: number, total: number }> = {};
+      filtered.forEach(r => {
+        const cat = String(r[catKey] || 'General');
+        if (!counts[cat]) counts[cat] = { A: 0, B: 0, total: 0 };
+        counts[cat].total++;
+        if (selectedA === 'all' || r._assignee === selectedA) counts[cat].A++;
+        if (selectedB === 'all' || r._assignee === selectedB) counts[cat].B++;
       });
 
-      const categories = Array.from(new Set(filteredData.map(r => String(r[catKey] || 'General'))));
-      return categories.map(cat => ({
-        name: cat,
-        A: filteredData.filter(r => (selectedA === 'all' || String(r[keysInfo?.assignee]) === selectedA) && String(r[catKey] || 'General') === cat).length,
-        B: filteredData.filter(r => (selectedB === 'all' || String(r[keysInfo?.assignee]) === selectedB) && String(r[catKey] || 'General') === cat).length,
-        squad: filteredData.filter(r => String(r[catKey] || 'General') === cat).length / (metrics.teamSize || 1),
-      })).filter(c => c.A > 0 || c.B > 0).sort((a, b) => (b.A + b.B) - (a.A + a.B)).slice(0, 10);
+      return Object.entries(counts)
+        .map(([name, c]) => ({
+          name,
+          A: c.A,
+          B: c.B,
+          squad: c.total / (metrics.teamSize || 1)
+        }))
+        .filter(c => c.A > 0 || c.B > 0)
+        .sort((a, b) => (b.A + b.B) - (a.A + a.B))
+        .slice(0, 10);
     };
 
-    const trendData = getTrendData();
     const categoryData = getCategoryData();
 
-    // --- NEW: Aging Heatmap Data (Refined for Comparison) ---
+    // --- Aging Heatmap (Fixed & Optimized) ---
     const getAgingHeatmap = () => {
       const catKey = keysInfo?.category || 'ÁMBITO';
-      const delayKey = keysInfo?.delay;
-      const assigneeKey = keysInfo?.assignee;
-      
       const brackets = [
-        { label: '0-2d', min: 0, max: 2, color: 'bg-emerald-100 text-emerald-700' },
-        { label: '3-5d', min: 3, max: 5, color: 'bg-amber-100 text-amber-700' },
-        { label: '6-10d', min: 6, max: 10, color: 'bg-orange-100 text-orange-700' },
-        { label: '+10d', min: 11, max: 1000, color: 'bg-rose-100 text-rose-700' }
+        { label: '0-2d', min: 0, max: 2 },
+        { label: '3-5d', min: 3, max: 5 },
+        { label: '6-10d', min: 6, max: 10 },
+        { label: '+10d', min: 11, max: 1000 }
       ];
 
       const cats = categoryData.map(c => c.name);
+      if (cats.length === 0) cats.push('General');
+
       const processFor = (name: string) => {
-         const tickets = name === 'all' ? allData : allData.filter(r => String(r[assigneeKey]) === name);
-         return cats.map(cat => {
-            const catTickets = tickets.filter(r => String(r[catKey] || 'General') === cat);
-            const row: any = { category: cat };
-            brackets.forEach(b => {
-              row[b.label] = catTickets.filter(r => {
-                const age = Number(r['AGING'] || r[delayKey] || 0);
-                return age >= b.min && age <= b.max;
-              }).length;
-            });
-            return row;
-         });
+        const tickets = name === 'all' ? enrichedData : enrichedData.filter(r => r._assignee === name);
+        return cats.map(cat => {
+          const catTickets = tickets.filter(r => String(r[catKey] || 'General') === cat);
+          const row: any = { category: cat };
+          brackets.forEach(b => {
+            row[b.label] = catTickets.filter(r => r._age >= b.min && r._age <= b.max).length;
+          });
+          return row;
+        });
       };
 
       return { A: processFor(selectedA), B: processFor(selectedB), brackets };
     };
 
-    // --- NEW: Specialization Comparison (Enhanced) ---
+    // --- Complexity Analysis (Impact/Priority/Reapertura) ---
+    const getComplexityMatrix = () => {
+      const process = (name: string) => {
+        const tickets = name === 'all' ? enrichedData : enrichedData.filter(r => r._assignee === name);
+        let highCritical = 0, mediumCritical = 0, lowCritical = 0, total = 0, reopens = 0;
+
+        tickets.forEach(r => {
+          total++;
+          const imp = String(r[impactKey] || '').toLowerCase();
+          const pri = String(r[priorityKey] || '').toLowerCase();
+          const urg = String(r[urgencyKey] || '').toLowerCase();
+          const reap = String(r[reopenKey] || '').toLowerCase();
+
+          if (reap === 'true' || reap === '1' || reap === 'si' || reap === 'sí') reopens++;
+
+          const scoreStr = imp + pri + urg;
+          if (scoreStr.includes('alto') || scoreStr.includes('critico') || scoreStr.includes('1') || scoreStr.includes('alta')) highCritical++;
+          else if (scoreStr.includes('medio') || scoreStr.includes('normal') || scoreStr.includes('2') || scoreStr.includes('3')) mediumCritical++;
+          else lowCritical++;
+        });
+
+        return { highCritical, mediumCritical, lowCritical, total, reopens, highRiskShare: total > 0 ? (highCritical / total * 100) : 0 };
+      };
+      return { A: process(selectedA), B: process(selectedB) };
+    };
+
     const getSpecRadar = () => {
       const topDomains = categoryData.map(c => ({
         subject: c.name,
@@ -327,80 +336,50 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
         B: c.B,
         squad: c.squad,
         total: c.A + c.B
-      })).sort((a, b) => b.total - a.total).slice(0, 8);
+      })).slice(0, 8);
 
       const processStats = (dataKey: 'A' | 'B' | 'squad') => {
-        const isSquad = dataKey === 'squad';
-        const totalItems = isSquad 
-          ? categoryData.reduce((acc, c) => acc + (c.squad as number), 0)
-          : categoryData.reduce((acc, c) => acc + (c[dataKey] as number), 0);
-        
-        const sorted = [...categoryData].sort((a, b) => {
-          const valB = isSquad ? b.squad : b[dataKey];
-          const valA = isSquad ? a.squad : a[dataKey];
-          return (valB as number) - (valA as number);
-        });
-        
-        const topCat = sorted[0] || null;
-        
-        const affinity = categoryData.length > 0 
-          ? (categoryData.reduce((acc: number, c) => {
-              const val = isSquad ? c.squad : c[dataKey];
-              return acc + Math.pow(((val as number) / (totalItems || 1)) * 100, 2);
-            }, 0) / 1000)
-          : 0;
-
+        const sorted = [...categoryData].sort((a,b) => (b[dataKey] as number) - (a[dataKey] as number));
+        const total = categoryData.reduce((acc, c) => acc + (c[dataKey] as number), 0);
+        const top = sorted[0];
         return {
-          topDomain: topCat?.name || 'N/A',
-          share: totalItems > 0 ? (( (isSquad ? topCat?.squad : topCat?.[dataKey]) as number) / totalItems * 100).toFixed(1) : 0,
-          affinity: affinity.toFixed(1),
-          top3: sorted.slice(0, 3).map(s => ({ name: s.name, count: isSquad ? s.squad.toFixed(1) : s[dataKey] }))
+          topDomain: top?.name || 'N/A',
+          share: total > 0 ? (((top?.[dataKey] as number) / total) * 100).toFixed(1) : 0,
+          affinity: (total / (enrichedData.length / metrics.teamSize)).toFixed(1),
+          top3: sorted.slice(0, 3).map(s => ({ name: s.name, count: s[dataKey] }))
         };
       };
 
-      return {
-        data: topDomains,
-        statsA: processStats('A'),
-        statsB: processStats('B'),
-        statsTeam: processStats('squad')
-      };
+      return { data: topDomains, statsA: processStats('A'), statsB: processStats('B'), statsTeam: processStats('squad') };
     };
 
-    // --- NEW: Concentration Index (Refined) ---
     const getConcIndex = () => {
       const process = (name: string) => {
-        const catKey = keysInfo?.category || 'ÁMBITO';
-        const assigneeKey = keysInfo?.assignee;
-        const tickets = name === 'all' ? allData : allData.filter(r => String(r[assigneeKey || '']) === name);
+        const tickets = name === 'all' ? enrichedData : enrichedData.filter(r => r._assignee === name);
         if (tickets.length === 0) return { score: 0, dependencyRisk: 'N/A', siloEffect: 0 };
-        
         const counts: any = {};
         tickets.forEach(r => {
-          const c = String(r[catKey] || 'General');
+          const c = String(r[keysInfo?.category || 'ÁMBITO'] || 'General');
           counts[c] = (counts[c] || 0) + 1;
         });
-        
         const sumSquares = (Object.values(counts) as number[]).reduce((acc: number, count: number) => acc + Math.pow((count / tickets.length) * 100, 2), 0);
         const score = Math.sqrt(sumSquares) / 10; 
-        
-        return {
-          score,
-          dependencyRisk: score > 7 ? 'Crítica' : score > 4 ? 'Moderada' : 'Baja',
-          siloEffect: score * 10 // 0-100
-        };
+        return { score, dependencyRisk: score > 7 ? 'Crítica' : score > 4 ? 'Moderada' : 'Baja', siloEffect: score * 10 };
       };
       return { A: process(selectedA), B: process(selectedB) };
     };
 
     return { 
       memberA, memberB, squadAvg, chartData, radarCombined, 
-      auditA, auditB, trendData, categoryData,
+      trendData: getTrendData(), 
+      categoryData,
       agingHeatmap: getAgingHeatmap(),
       specRadar: getSpecRadar(),
       concIndex: getConcIndex(),
+      complexity: getComplexityMatrix(),
       maxDataDate, isDataStale
     };
-  }, [selectedA, selectedB, collaborators, metrics, allData, keysInfo, timeRange]);
+  }, [selectedA, selectedB, collaborators, metrics, allData, keysInfo, timeRange, portfolioAxis]);
 
   const handleExportAudit = async () => {
     if (!keysInfo) return;
@@ -514,27 +493,27 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div className="flex flex-col md:flex-row gap-4 flex-1 w-full items-stretch">
              <div className="flex-1 space-y-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 pl-4">Audit A</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 pl-4">Auditoria A</span>
                   <select 
                     value={selectedA}
                     onChange={(e) => setSelectedA(e.target.value)}
                     className="w-full h-14 px-6 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] font-bold text-slate-700 hover:bg-white transition-all outline-none"
                   >
-                    <option value="all">Promedio de Equipo</option>
+                    <option value="all">Fuerza de Tareas (Squad)</option>
                     {collaborators.map((c: any) => (
                       <option key={c.name} value={c.name}>{c.name}</option>
                     ))}
                   </select>
                </div>
-
+ 
                <div className="flex-1 space-y-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 pl-4 text-brand-600">Audit B</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 pl-4 text-brand-600">Auditoria B</span>
                   <select 
                     value={selectedB}
                     onChange={(e) => setSelectedB(e.target.value)}
                     className="w-full h-14 px-6 bg-brand-50/30 border border-brand-100 rounded-2xl text-[11px] font-bold text-slate-700 hover:bg-white transition-all outline-none"
                   >
-                    <option value="all">Promedio de Equipo</option>
+                    <option value="all">Fuerza de Tareas (Squad)</option>
                     {collaborators.map((c: any) => (
                       <option key={c.name} value={c.name}>{c.name}</option>
                     ))}
@@ -563,7 +542,8 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                    { id: 'portfolio', label: 'Portafolio', icon: <Layers size={14} /> },
                    { id: 'aging_heatmap', label: 'Calor Aging', icon: <Activity size={14} /> },
                    { id: 'specialization', label: 'Especialización', icon: <Cpu size={14} /> },
-                   { id: 'concentration', label: 'Concentración', icon: <PieChart size={14} /> }
+                   { id: 'concentration', label: 'Concentración', icon: <PieChart size={14} /> },
+                   { id: 'complexity', label: 'Matriz Impacto/Urgencia', icon: <Shield size={14} /> }
                  ].map(m => (
                    <button
                      key={m.id}
@@ -776,6 +756,7 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                     />
                     <YAxis hide />
                     <Tooltip 
+                      formatter={(value: any) => [typeof value === 'number' ? Number(value.toFixed(1)) : value, '']}
                       cursor={{ fill: '#f8fafc' }}
                       contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '1.5rem' }}
                     />
@@ -817,12 +798,25 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
             
             {selectedMatrices.includes('portfolio') && (
               <Card className="border-0 shadow-2xl rounded-[3rem] bg-white overflow-hidden animate-in zoom-in-95 duration-500">
-                <CardHeader className="p-10 pb-2 flex flex-row justify-between items-center bg-slate-50/30">
+                <CardHeader className="p-10 pb-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/30">
                   <div>
-                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Portfolio Focus</p>
-                    <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Dispersión de Portafolio por Ámbito</CardTitle>
+                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Foco por Ámbito</p>
+                    <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Comparativa Operativa</CardTitle>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                    <select
+                      value={portfolioAxis}
+                      onChange={(e) => setPortfolioAxis(e.target.value)}
+                      className="h-10 px-4 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none hover:border-slate-300 w-full sm:w-auto"
+                    >
+                      <option value="Categoria">Categoría</option>
+                      <option value="Subcategoria">Subcategoría</option>
+                      <option value="Tercer Nivel">3er Nivel</option>
+                      <option value="Prioridad">Prioridad</option>
+                      <option value="Impacto">Impacto</option>
+                      <option value="Urgencia">Urgencia</option>
+                      <option value="Reapertura">Reapertura</option>
+                    </select>
                     <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200/50 shadow-inner">
                       <button 
                         onClick={() => setPortfolioViewType('individual')} 
@@ -837,7 +831,7 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                         Vs Squad
                       </button>
                     </div>
-                    <div className="p-3 bg-white rounded-2xl shadow-sm text-emerald-500"><Layers size={20} /></div>
+                    <div className="p-3 bg-white rounded-2xl shadow-sm text-emerald-500 hidden md:block"><Layers size={20} /></div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-10 pt-8">
@@ -847,12 +841,16 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 10, fontWeight: 700, fill: '#64748b'}} axisLine={false} />
-                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '1rem', border: 'none' }} />
+                        <Tooltip 
+                          formatter={(value: any) => [typeof value === 'number' ? Number(value.toFixed(1)) : value, '']}
+                          cursor={{fill: '#f8fafc'}} 
+                          contentStyle={{ borderRadius: '1rem', border: 'none' }} 
+                        />
                         <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '10px', fontWeight: 900, textTransform: 'uppercase' }} />
                         <Bar dataKey="A" name={compareData.memberA.name} fill="#6366f1" radius={[0, 4, 4, 0]} />
                         <Bar dataKey="B" name={compareData.memberB.name} fill="#10b981" radius={[0, 4, 4, 0]} />
                         {portfolioViewType === 'team' && (
-                          <Bar dataKey="squad" name="Promedio Squad" fill="#94a3b8" radius={[0, 4, 4, 0]} opacity={0.6} strokeDasharray="4 4" />
+                          <Bar dataKey="squad" name="Referencial Squad" fill="#f43f5e" radius={[0, 4, 4, 0]} opacity={0.3} strokeDasharray="4 4" />
                         )}
                       </ReBarChart>
                     </ResponsiveContainer>
@@ -865,9 +863,9 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
               <Card className="border-0 shadow-2xl rounded-[3rem] bg-white overflow-hidden animate-in zoom-in-95 duration-500">
                 <CardHeader className="p-10 pb-4 bg-slate-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div>
-                    <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-1">Stock Volatility Map</p>
-                    <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Matriz de Calor: Tiempo de Vida (Aging)</CardTitle>
-                    <p className="text-[10px] text-slate-400 mt-1 font-bold">Distribución de tickets por antigüedad y ámbito operativo</p>
+                    <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-1">Mapa de Latencia Operativa</p>
+                    <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Matriz de Calor: Antigüedad de Tareas</CardTitle>
+                    <p className="text-[10px] text-slate-400 mt-1 font-bold">Distribución de tickets por días de atraso y categoría</p>
                   </div>
                   <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
                      <button
@@ -961,7 +959,7 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                   <Card className="border-0 shadow-2xl rounded-[3rem] bg-white overflow-hidden animate-in zoom-in-95 duration-500 xl:col-span-2">
                     <CardHeader className="p-10 pb-4 bg-slate-50/30 flex flex-row justify-between items-center">
                        <div>
-                          <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Advanced Domain Analytics</p>
+                          <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Análisis de Dominio Operativo</p>
                           <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Matriz de Especialización Técnica</CardTitle>
                        </div>
                        <div className="flex items-center gap-4">
@@ -980,9 +978,12 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                                     <Radar name={compareData.memberA.name} dataKey="A" stroke="#6366f1" fill="#6366f1" fillOpacity={0.4} />
                                     <Radar name={compareData.memberB.name} dataKey="B" stroke="#10b981" fill="#10b981" fillOpacity={0.4} />
                                     {radarViewType === 'team' && (
-                                      <Radar name="Benchmark Squad" dataKey="squad" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.2} strokeDasharray="4 4" />
+                                      <Radar name="Benchmark Squad" dataKey="squad" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.15} strokeDasharray="4 4" />
                                     )}
-                                    <Tooltip contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                                    <Tooltip 
+                                      formatter={(value: any) => [typeof value === 'number' ? Number(value.toFixed(1)) : value, '']}
+                                      contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} 
+                                    />
                                     <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', paddingTop: '20px' }} />
                                  </RadarChart>
                               </ResponsiveContainer>
@@ -1053,9 +1054,9 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                   <Card className="border-0 shadow-2xl rounded-[3rem] bg-white overflow-hidden animate-in zoom-in-95 duration-500 xl:col-span-2">
                     <CardHeader className="p-10 pb-4 bg-slate-50/30 flex flex-row justify-between items-center">
                        <div>
-                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Concentration Fingerprint</p>
-                          <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Índice de Concentración y Silos</CardTitle>
-                          <p className="text-[10px] text-slate-400 mt-1 font-bold">Análisis de dependencia operativa por especialista</p>
+                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Concentración Operativa</p>
+                          <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Índice de Silos y Dependencia</CardTitle>
+                          <p className="text-[10px] text-slate-400 mt-1 font-bold">Análisis de Riesgo por Concentración de Conocimiento</p>
                        </div>
                        <div className="p-3 bg-white rounded-2xl shadow-sm text-amber-500"><PieChart size={20} /></div>
                     </CardHeader>
@@ -1127,6 +1128,75 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                     </CardContent>
                   </Card>
                )}
+
+               {selectedMatrices.includes('complexity') && (
+                  <Card className="border-0 shadow-2xl rounded-[3rem] bg-white overflow-hidden animate-in zoom-in-95 duration-500 xl:col-span-2">
+                    <CardHeader className="p-10 pb-4 bg-slate-50/30 flex flex-row justify-between items-center">
+                       <div>
+                          <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1">Impacto & Soporte</p>
+                          <CardTitle className="text-2xl font-black text-slate-900 tracking-tighter">Matriz de Complejidad y Riesgo</CardTitle>
+                          <p className="text-[10px] text-slate-400 mt-1 font-bold">Distribución de incidentes por nivel de prioridad, impacto y urgencia</p>
+                       </div>
+                       <div className="p-3 bg-white rounded-2xl shadow-sm text-rose-500"><Shield size={20} /></div>
+                    </CardHeader>
+                    <CardContent className="p-10">
+                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                          {[
+                            { 
+                               name: compareData.memberA.name, 
+                               stats: compareData.complexity.A, 
+                               color: 'indigo'
+                            },
+                            { 
+                               name: compareData.memberB.name, 
+                               stats: compareData.complexity.B, 
+                               color: 'emerald'
+                            }
+                          ].map((item, i) => (
+                             <div key={i} className="space-y-6 p-8 rounded-[2.5rem] bg-slate-50/50 border border-slate-100">
+                                <div className="flex justify-between items-start">
+                                   <div>
+                                      <h4 className="text-lg font-black text-slate-900 tracking-tighter">{item.name}</h4>
+                                      <div className={`mt-2 px-3 py-1 rounded-lg text-[9px] font-black uppercase inline-block ${item.stats.highRiskShare > 50 ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                         Carga Crítica: {item.stats.highRiskShare.toFixed(1)}%
+                                      </div>
+                                   </div>
+                                   <div className="text-right">
+                                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Txs</p>
+                                      <p className="text-3xl font-black text-slate-900">{item.stats.total}</p>
+                                   </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-200/50">
+                                   <div className="p-4 bg-white rounded-2xl shadow-sm border border-rose-100/50 flex flex-col items-center text-center">
+                                      <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-2">Crítico / Alto</span>
+                                      <span className="text-2xl font-black text-slate-900">{item.stats.highCritical}</span>
+                                   </div>
+                                   <div className="p-4 bg-white rounded-2xl shadow-sm border border-amber-100/50 flex flex-col items-center text-center">
+                                      <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-2">Medio</span>
+                                      <span className="text-2xl font-black text-slate-900">{item.stats.mediumCritical}</span>
+                                   </div>
+                                   <div className="p-4 bg-white rounded-2xl shadow-sm border border-emerald-100/50 flex flex-col items-center text-center">
+                                      <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-2">Bajo / Normal</span>
+                                      <span className="text-2xl font-black text-slate-900">{item.stats.lowCritical}</span>
+                                   </div>
+                                   <div className="p-4 bg-indigo-50/50 rounded-2xl shadow-sm border border-indigo-100/50 flex flex-col items-center text-center relative overflow-hidden group">
+                                      <div className="absolute top-0 right-0 p-1 opacity-10 group-hover:rotate-12 transition-transform"><Activity size={40} /></div>
+                                      <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-2">Reaperturas</span>
+                                      <span className="text-2xl font-black text-indigo-900">{item.stats.reopens}</span>
+                                    </div>
+                                </div>
+                                <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                                   <div className="h-full bg-rose-500 transition-all duration-1000" style={{ width: `${(item.stats.highCritical / item.stats.total) * 100}%` }} />
+                                   <div className="h-full bg-amber-400 transition-all duration-1000" style={{ width: `${(item.stats.mediumCritical / item.stats.total) * 100}%` }} />
+                                   <div className="h-full bg-emerald-400 transition-all duration-1000" style={{ width: `${(item.stats.lowCritical / item.stats.total) * 100}%` }} />
+                                </div>
+                             </div>
+                          ))}
+                       </div>
+                    </CardContent>
+                  </Card>
+               )}
             </div>
           </div>
         </section>
@@ -1143,8 +1213,8 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
           <Card className="border-0 shadow-2xl rounded-[3.5rem] bg-white border border-slate-100 overflow-hidden">
              <CardHeader className="p-12 border-b border-slate-50 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 bg-slate-50/20">
                 <div>
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-1">Business Audit Matrix</p>
-                   <h3 className="text-3xl font-black text-slate-950 tracking-tighter">Matriz de Veredicto Estratégico</h3>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-1">Evaluación de Alta Dirección</p>
+                   <h3 className="text-3xl font-black text-slate-950 tracking-tighter">Matriz de Veredicto Operativo</h3>
                 </div>
                 <div className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-2xl shadow-xl">
                    <Shield size={16} className="text-brand-400" />
@@ -1263,13 +1333,16 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
           </Card>
         </motion.div>
       </AnimatePresence>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {[
           { 
             label: 'Brecha de Eficiencia', 
             val: Math.abs(compareData.memberA.efficiencyScore - compareData.memberB.efficiencyScore).toFixed(1), 
+            valA: compareData.memberA.efficiencyScore,
+            valB: compareData.memberB.efficiencyScore,
             icon: <Zap size={18} />, 
-            color: 'slate', 
+            color: 'emerald', 
             unit: 'Pts',
             trend: 'closing',
             status: Math.abs(compareData.memberA.efficiencyScore - compareData.memberB.efficiencyScore) > 15 ? 'Crítico' : 'Estable'
@@ -1277,6 +1350,8 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
           { 
             label: 'Diferencial de Velocidad', 
             val: Math.abs(compareData.memberA.rawMttr - compareData.memberB.rawMttr).toFixed(1), 
+            valA: compareData.memberA.rawMttr,
+            valB: compareData.memberB.rawMttr,
             icon: <Clock size={18} />, 
             color: 'indigo', 
             unit: 'Hrs',
@@ -1286,6 +1361,8 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
           { 
             label: 'Gap de Productividad', 
             val: Math.abs(compareData.memberA.total - compareData.memberB.total).toFixed(0), 
+            valA: compareData.memberA.total,
+            valB: compareData.memberB.total,
             icon: <Target size={18} />, 
             color: 'brand', 
             unit: 'Tks',
@@ -1293,7 +1370,11 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
             status: 'Consistente'
           }
         ].map((delta, i) => (
-          <Card key={i} className="border-0 shadow-lg bg-white rounded-3xl p-10 group hover:ring-2 hover:ring-slate-900 transition-all overflow-hidden relative">
+          <Card 
+            key={i} 
+            className="border-0 shadow-lg bg-white rounded-3xl p-10 group hover:ring-2 hover:ring-slate-900 transition-all overflow-hidden relative cursor-pointer"
+            onClick={() => setActiveDelta(delta)}
+          >
              <div className="absolute top-0 right-0 p-6">
                 <span className={`px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest ${
                   delta.status === 'Crítico' ? 'bg-rose-50 text-rose-600' : 
@@ -1303,7 +1384,7 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
                 </span>
              </div>
              <div className="flex items-center gap-6">
-                <div className={`p-4 ${delta.color === 'slate' ? 'bg-slate-950 text-white' : delta.color === 'indigo' ? 'bg-indigo-600 text-white' : 'bg-brand-500 text-white'} rounded-2xl group-hover:rotate-6 transition-transform`}>
+                <div className={`p-4 ${delta.color === 'emerald' ? 'bg-emerald-600 text-white' : delta.color === 'indigo' ? 'bg-indigo-600 text-white' : delta.color === 'brand' ? 'bg-brand-500 text-white' : 'bg-slate-950 text-white'} rounded-2xl group-hover:rotate-6 transition-transform`}>
                    {delta.icon}
                 </div>
                 <div>
@@ -1328,6 +1409,91 @@ export const VSPerformanceAnalytics: React.FC<Props> = ({ metrics, allData, keys
           </Card>
         ))}
       </div>
+
+      <AnimatePresence>
+        {activeDelta && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/60 backdrop-blur-md"
+            onClick={(e) => e.target === e.currentTarget && setActiveDelta(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              className="bg-white rounded-[3rem] shadow-2xl w-full max-w-xl overflow-hidden relative"
+            >
+              <button 
+                onClick={() => setActiveDelta(null)}
+                className="absolute top-8 right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full transition-all hover:rotate-90"
+              >
+                <X size={18} className="text-slate-400" />
+              </button>
+
+              <div className="p-12 space-y-10">
+                <div className="flex items-center gap-6">
+                  <div className={`p-5 rounded-[2rem] bg-slate-900 text-white shadow-xl`}>
+                    {activeDelta.icon}
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1 block">Explicación del Indicador</span>
+                    <h3 className="text-3xl font-black text-slate-900 tracking-tighter">{activeDelta.label}</h3>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                       <User size={80} />
+                    </div>
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block mb-4">Valor A: {compareData.memberA.name}</span>
+                    <div className="flex items-baseline gap-2">
+                       <span className="text-4xl font-black text-slate-900">{activeDelta.valA.toFixed(1)}</span>
+                       <span className="text-[10px] font-bold text-slate-400 uppercase">{activeDelta.unit}</span>
+                    </div>
+                  </div>
+                  <div className="p-8 bg-indigo-50/30 rounded-[2.5rem] border border-indigo-100/50 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                       <User size={80} className="text-indigo-600" />
+                    </div>
+                    <span className="text-[9px] font-black uppercase text-indigo-400 tracking-widest block mb-4">Valor B: {compareData.memberB.name}</span>
+                    <div className="flex items-baseline gap-2">
+                       <span className="text-4xl font-black text-indigo-900">{activeDelta.valB.toFixed(1)}</span>
+                       <span className="text-[10px] font-bold text-indigo-400 uppercase">{activeDelta.unit}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="flex items-center gap-4">
+                     <Calculator size={18} className="text-brand-500" />
+                     <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Lógica de Cálculo</h4>
+                  </div>
+                  <div className="p-8 bg-slate-900 rounded-[2rem] shadow-xl">
+                    <p className="text-indigo-300 font-mono text-xs mb-4 uppercase tracking-[0.2em] font-black">Fórmula Algorítmica</p>
+                    <code className="text-2xl font-black text-white tracking-widest">
+                      | {activeDelta.valA.toFixed(1)} - {activeDelta.valB.toFixed(1)} | = {activeDelta.val}
+                    </code>
+                    <p className="text-slate-400 text-[11px] mt-6 leading-relaxed font-medium">
+                      Este indicador representa el valor absoluto de la varianza entre ambos sujetos analizados. 
+                      {activeDelta.status === 'Crítico' ? ' La brecha es significativa y requiere homologación profunda.' : ' La paridad indica alta madurez y estandarización en este KPI.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setActiveDelta(null)}
+                  className="w-full py-5 bg-gradient-to-r from-slate-900 to-indigo-900 text-white font-black text-[11px] uppercase tracking-[0.3em] rounded-2xl shadow-2xl hover:scale-[1.02] active:scale-95 transition-all"
+                >
+                  Cerrar Análisis
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <DetailsModal 
         isOpen={modalOpen}

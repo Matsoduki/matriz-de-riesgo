@@ -15,7 +15,7 @@ export const IndividualDeepDiveModal: React.FC<Props> = ({ member, onClose }) =>
     <Modal
       isOpen={!!member}
       onClose={onClose}
-      title={`Operational DNA: ${member.name}`}
+      title={`Perfil Operativo: ${member.name}`}
     >
       <AnimatePresence mode="wait">
         <motion.div 
@@ -34,7 +34,7 @@ export const IndividualDeepDiveModal: React.FC<Props> = ({ member, onClose }) =>
                    }`}>
                      {member.estado}
                    </span>
-                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Efficiency Index: {member.efficiencyScore}</span>
+                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Índice de Eficiencia: {member.efficiencyScore}</span>
                 </div>
                 <h3 className="text-4xl font-black tracking-tighter mb-8">{member.name}</h3>
                 
@@ -43,22 +43,22 @@ export const IndividualDeepDiveModal: React.FC<Props> = ({ member, onClose }) =>
                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Volumen Total</p>
                        <p className="text-3xl font-black">{member.total}</p>
                     </div>
-                    <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">SLA Accuracy</p>
-                       <p className="text-3xl font-black text-emerald-400">{member.compliance}%</p>
-                    </div>
-                    <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Backlog</p>
-                       <p className="text-3xl font-black text-rose-400">{member.open}</p>
-                    </div>
-                    <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Lead Time</p>
-                       <p className="text-3xl font-black text-indigo-400">{member.mttrDisplay}</p>
-                    </div>
-                    <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Efficiency Index</p>
-                       <p className="text-3xl font-black text-brand-400">{member.efficiencyScore}</p>
-                    </div>
+                     <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Precisión SLA</p>
+                        <p className="text-3xl font-black text-emerald-400">{member.compliance}%</p>
+                     </div>
+                     <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Cola de Trabajo</p>
+                        <p className="text-3xl font-black text-rose-400">{member.open}</p>
+                     </div>
+                     <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Tiempo Respuesta</p>
+                        <p className="text-3xl font-black text-indigo-400">{member.mttrDisplay}</p>
+                     </div>
+                     <div className="bg-white/5 backdrop-blur-md p-6 rounded-3xl border border-white/10 text-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Nivel Eficiencia</p>
+                        <p className="text-3xl font-black text-brand-400">{member.efficiencyScore}</p>
+                     </div>
                  </div>
              </div>
           </div>

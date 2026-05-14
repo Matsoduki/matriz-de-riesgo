@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  X, Info, AlertTriangle, TrendingUp, Users, Clock, Zap, 
+  X, Info, AlertTriangle, TrendingUp, Users, Clock, Zap, Layers,
   BarChart as BarChartIcon, ArrowRight, CheckCircle2, Flame, Scale, Hourglass,
   Lightbulb, Target, BrainCircuit, Activity, Timer
 } from 'lucide-react';
@@ -10,8 +10,10 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, 
   BarChart, Bar, Cell, PieChart, Pie
 } from 'recharts';
+import { format, parse } from 'date-fns';
+import { es } from 'date-fns/locale';
 
-export type MetricType = 'burnout' | 'aging' | 'imbalance' | 'throughput' | 'efficiency' | 'sla';
+export type MetricType = 'burnout' | 'aging' | 'imbalance' | 'throughput' | 'efficiency' | 'sla' | 'speed' | 'complexity' | 'resolution' | 'agility';
 
 interface Props {
   isOpen: boolean;
@@ -28,6 +30,62 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
 
   const getMetricDetails = () => {
     switch (metricType) {
+      case 'speed':
+        return {
+          title: "SLA Speed & Velocidad de Cierre",
+          icon: <Zap className="text-blue-500" />,
+          color: "blue",
+          definition: "Velocidad promediada contra el objetivo de SLA. Valores superiores a 80 indican una respuesta 'Flash' que supera las expectativas del negocio.",
+          calculation: "Speed = Σ (T_sla / T_resolution) / N. Compara el tiempo real vs límite de SLA por prioridad.",
+          factors: ["Prioridad de los tickets", "Disponibilidad de herramientas", "Claridad de requerimientos", "Experiencia técnica"],
+          recommendation: "Monitorear tickets cerca del vencimiento y aplicar técnicas de Quick-Win en tareas de baja complejidad.",
+          stats: [
+            { label: "SLA Global", val: `${metrics.timeCompliance}%`, sub: "Cumplimiento" },
+            { label: "Velocidad Promedio", val: metrics.avgMTTRDisplay, sub: "MTTR" }
+          ]
+        };
+      case 'complexity':
+        return {
+          title: "Índice de Complejidad Técnica",
+          icon: <Layers className="text-amber-500" />,
+          color: "amber",
+          definition: "Dificultad técnica del volumen de trabajo realizado. Un valor alto indica que el equipo está resolviendo retos transformacionales y no solo tareas repetitivas.",
+          calculation: "Complexity = Log(PriorityWeight * Volume). Asignación de coeficientes según severidad e impacto técnico.",
+          factors: ["Criticidad del activo afectado", "Especialidad requerida", "Interconectividad de sistemas", "Riesgo de impacto preventivo"],
+          recommendation: "Fomentar la documentación de casos complejos y realizar sesiones de Knowledge Transfer para evitar silos.",
+          stats: [
+            { label: "Tickets Críticos", val: metrics.criticalCount, sub: "Alta Prioridad" },
+            { label: "Especialización", val: "Alta", sub: "Index Score" }
+          ]
+        };
+      case 'resolution':
+        return {
+          title: "Capacidad Neta de Resolución",
+          icon: <CheckCircle2 className="text-emerald-500" />,
+          color: "emerald",
+          definition: "Capacidad neta de resolución del periodo. Refleja la estabilidad del backlog; si el indicador baja, el fondo de tickets está acumulándose.",
+          calculation: "Resolution = (Resolved / (Resolved + Open)) * 100. Balance de flujo (entrada vs salida) de requerimientos.",
+          factors: ["Tasa de entrada de tickets", "Recursos disponibles", "Eficiencia de procesos", "Estabilidad del Squad"],
+          recommendation: "Mantener el flujo de resolución por encima de la tasa de entrada para evitar crecimiento del backlog.",
+          stats: [
+            { label: "Tasa de Resolución", val: `${metrics.resolutionRate}%`, sub: "Resolution Index" },
+            { label: "Tickets Resueltos", val: metrics.resolved, sub: "Total Periodo" }
+          ]
+        };
+      case 'agility':
+        return {
+          title: "Predictibilidad & Agilidad Operativa",
+          icon: <TrendingUp className="text-fuchsia-500" />,
+          color: "fuchsia",
+          definition: "Previsibilidad del flujo de entrega. Un equipo ágil es un equipo constante. Poca varianza en tiempos de ciclo se traduce en alta predictibilidad.",
+          calculation: "Agility = 100 - (Variance / Mean * 100). Cálculo de desviación estándar de tiempos de entrega normalizados.",
+          factors: ["Consistencia en el Daily", "Eliminación de bloqueos", "Calidad en la definición de tareas", "Disciplina operativa"],
+          recommendation: "Estandarizar procesos de triaje y revisión para reducir la varianza en los tiempos de entrega.",
+          stats: [
+            { label: "Agilidad", val: "Óptima", sub: "Predictibilidad" },
+            { label: "Balance de Carga", val: `${metrics.imbalancePct}%`, sub: "Friction Index" }
+          ]
+        };
       case 'burnout':
         return {
           title: "Análisis de Riesgo Burnout",
@@ -147,7 +205,60 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
     }
   };
 
+  const parseFlexibleDate = (val: any) => {
+    if (!val) return null;
+    const s = String(val);
+    if (/^\d{5}$|^\d{5}\.\d+$/.test(s)) {
+      const serial = parseFloat(s);
+      return new Date(Math.round((serial - 25569) * 86400 * 1000));
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return parse(s.substring(0, 10), 'yyyy-MM-dd', new Date());
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
   const getChartData = () => {
+    // Generate real time series from data
+    const keys = Object.keys(data[0] || {});
+    const dateKey = keys.find(k => ['Mes', 'Periodo', 'Fecha', 'Date', 'Month'].some(c => k.toLowerCase().includes(c.toLowerCase())));
+    const statusKey = keys.find(k => ['Estado', 'Status', 'Semaforo', 'Status Final'].some(c => k.toLowerCase().includes(c.toLowerCase())));
+
+    if (dateKey && statusKey && data.length > 0) {
+      const timeData: Record<string, any> = {};
+      const parsedData = data.map(d => ({ ...d, _date: parseFlexibleDate(d[dateKey]) })).filter(d => d._date);
+      
+      const monthGroups = new Set(parsedData.map(d => format(d._date, 'yyyy-MM')));
+      const isSingleMonth = monthGroups.size === 1;
+
+      parsedData.forEach(d => {
+        const period = isSingleMonth ? format(d._date, 'yyyy-MM-dd') : format(d._date, 'yyyy-MM');
+        if (!timeData[period]) timeData[period] = { date: period, count: 0, resolved: 0, total: 0 };
+        timeData[period].total++;
+        if (isResolvedStatus(String(d[statusKey]).toLowerCase())) {
+          timeData[period].resolved++;
+        }
+      });
+
+      const series = Object.values(timeData)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(s => {
+          const d = parse(s.date, s.date.length > 7 ? 'yyyy-MM-dd' : 'yyyy-MM', new Date());
+          const displayDate = s.date.length > 7 
+            ? format(d, 'dd MMM', { locale: es }) 
+            : format(d, 'MMM yy', { locale: es });
+          return { ...s, displayDate };
+        });
+      
+      switch (metricType) {
+        case 'throughput':
+          return series.map(s => ({ date: s.displayDate, score: s.resolved, label: 'Resueltos' }));
+        case 'sla':
+          return series.map(s => ({ date: s.displayDate, score: Math.round((s.resolved / (s.total || 1)) * 100), label: 'SLA' }));
+        default:
+          return series.map(s => ({ date: s.displayDate, score: Math.round(s.total), label: 'Volumen' }));
+      }
+    }
+
     const baseLabels = ['10 Feb', '05 Mar', '28 Mar', '15 Abr', '12 May'];
     switch (metricType) {
       case 'burnout':
@@ -189,8 +300,9 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
     switch (metricType) {
       case 'burnout': return '#f43f5e'; // Rose
       case 'aging': return '#f59e0b'; // Amber
-      case 'sla': return '#10b981'; // Emerald
-      case 'throughput': return '#6366f1'; // Indigo
+      case 'sla': return '#ffcd00'; // TISAL Gold
+      case 'throughput': return '#005bb7'; // TISAL Blue
+      case 'efficiency': return '#6366f1'; // Indigo
       default: return '#6366f1';
     }
   };
@@ -392,9 +504,11 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
                               dataKey="date" 
                               axisLine={false} 
                               tickLine={false} 
+                              minTickGap={20}
                               tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} 
                             />
                             <Tooltip 
+                              formatter={(value: any) => [typeof value === 'number' ? Number(value.toFixed(1)) : value, '']}
                               contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                               labelStyle={{ fontSize: '10px', fontWeight: 900, color: chartColor }}
                             />
@@ -419,9 +533,11 @@ export const AnalyticalBreakdownPanel: React.FC<Props> = ({
                               dataKey="cat" 
                               axisLine={false} 
                               tickLine={false} 
+                              minTickGap={10}
                               tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }} 
                             />
                             <Tooltip 
+                              formatter={(value: any) => [typeof value === 'number' ? Number(value.toFixed(1)) : value, '']}
                               cursor={{ fill: 'transparent' }}
                               contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                             />

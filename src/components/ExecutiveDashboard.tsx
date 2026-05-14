@@ -49,21 +49,21 @@ const NavItem = ({ icon, label, isActive, onClick, alert }: { icon: React.ReactN
     }`}
   >
     <div className="flex items-center gap-3 relative z-10">
-      <div className={`${isActive ? 'text-white' : 'text-slate-400 group-hover:text-brand-500'} transition-colors`}>
+      <div className={`${isActive ? 'text-white' : 'text-slate-400 group-hover:text-tisal-gold'} transition-colors`}>
         {icon}
       </div>
-      <span className={`text-sm tracking-tight ${isActive ? 'font-bold' : 'font-medium'}`}>{label}</span>
+      <span className={`text-[11px] uppercase font-black tracking-widest ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-700'}`}>{label}</span>
     </div>
     {alert && !isActive && (
       <span className="relative flex h-2 w-2 z-10">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-tisal-gold opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-tisal-gold shadow-[0_0_8px_#ffcd00]"></span>
       </span>
     )}
     {isActive && (
       <motion.div 
         layoutId="activeNav"
-        className="absolute inset-0 bg-brand-600"
+        className="absolute inset-0 bg-brand-600 shadow-[inset_0_0_20px_rgba(0,0,0,0.2)]"
         transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
       />
     )}
@@ -237,18 +237,19 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
 
   return (
     <div className="flex h-screen w-full bg-slate-50 text-slate-900 overflow-hidden font-sans">
-      <aside className="w-64 border-r border-slate-200 bg-white flex flex-col hide-scrollbar relative z-30">
-        <div className="p-8">
-          <h1 className="text-xl font-black tracking-tight text-slate-900 flex items-center gap-2">
-            <div className="h-9 w-9 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg">
-              <Shield size={18} />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xl font-black tracking-tighter leading-none">MAC<span className="text-brand-600">.</span></span>
-              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-tight">Matriz de Actividades y Riesgos</span>
-            </div>
-          </h1>
+      <aside className="w-64 border-r border-slate-200 bg-white/80 backdrop-blur-xl flex flex-col hide-scrollbar relative z-30 shadow-2xl">
+    <div className="p-8">
+      <h1 className="text-xl font-black tracking-tight text-slate-900 flex items-center gap-2">
+        <div className="h-10 w-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-xl shadow-slate-200 relative overflow-hidden group">
+           <div className="absolute inset-0 bg-gradient-to-br from-tisal-gold to-brand-500 opacity-20" />
+           <span className="text-xl font-black italic relative z-10 text-tisal-gold">T</span>
         </div>
+        <div className="flex flex-col">
+          <span className="text-2xl font-black tracking-tighter leading-none text-slate-800">TISAL<span className="text-tisal-gold">.</span></span>
+          <span className="text-[7px] font-black text-slate-400 uppercase tracking-[0.3em] leading-tight">Auditoría Inteligente</span>
+        </div>
+      </h1>
+    </div>
         
         <nav className="flex-1 space-y-1 px-4 py-2">
           <NavItem 
@@ -262,7 +263,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           </div>
           <NavItem 
             icon={<Activity size={18} />} 
-            label={`Portfolio (${globalMetrics.counts.jira2025})`} 
+            label={`Detalle Portfolio (${globalMetrics.counts.jira2025})`} 
             isActive={currentView === 'jira2025'} 
             onClick={() => setCurrentView('jira2025')} 
           />
@@ -328,14 +329,19 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
       </aside>
 
       <main className="flex-1 overflow-auto bg-[#FBFBFC] relative">
-        <header className="sticky top-0 z-20 flex h-20 items-center justify-between px-10 border-b border-slate-200/60 bg-white/70 backdrop-blur-xl">
+        {/* Surprise Branding Background Elements */}
+        <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-brand-50 rounded-full blur-[120px] -mr-96 -mt-96 opacity-40 mix-blend-multiply pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-tisal-gold/10 rounded-full blur-[100px] -ml-48 -mb-48 opacity-30 mix-blend-multiply pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:40px_40px] opacity-20 pointer-events-none" />
+
+        <header className="sticky top-0 z-40 flex h-20 items-center justify-between px-10 border-b border-slate-200/60 bg-white/70 backdrop-blur-xl">
           <div className="flex flex-col">
              <h3 className="text-xl font-bold text-slate-900 tracking-tight">
                {currentView === 'overview' ? 'Resumen Ejecutivo' :
                 currentView === 'sensor' ? 'Gestión de Telemetría' :
                 currentView === 'mandoYControl' ? 'Resiliencia de Postura MAC' :
                 currentView === 'gapFinder' ? 'Análisis de Brechas & Mapeo de Riesgos' :
-                currentView === 'jira2025' ? 'Seguimiento TI' :
+                currentView === 'jira2025' ? 'Detalle Portfolio' :
                 currentView === 'jira2026' ? 'Hoja de Ruta 2026' :
                 currentView === 'teamInitiatives' ? 'Desempeño Iniciativas 2026' :
                 currentView === 'teamSupport' ? 'Desempeño Soporte Técnico' :
@@ -350,19 +356,19 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
           <div className="flex items-center gap-6">
             <button 
               onClick={() => setIsGlossaryOpen(true)}
-              className="h-10 px-6 flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-900 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-sm group"
+              className="h-10 px-6 flex items-center gap-2 bg-white hover:bg-tisal-gold hover:text-slate-900 text-slate-900 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-sm group"
             >
-               <Info size={14} className="text-brand-500 group-hover:scale-110 transition-transform" />
-               Glosario Técnico
+               <Info size={14} className="text-brand-500 group-hover:text-slate-900 group-hover:scale-110 transition-all" />
+               Glosario TISAL
             </button>
             <div className="flex items-center gap-4 bg-slate-100/50 p-1 rounded-2xl border border-slate-200/40">
                <div className="px-4 py-2 bg-white rounded-xl shadow-sm text-xs font-bold text-slate-700 flex items-center gap-2">
-                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                 Sincronización Activa
+                 <div className="h-1.5 w-1.5 rounded-full bg-tisal-gold animate-pulse" />
+                 Sincronización TISAL
                </div>
             </div>
-            <div className="h-10 w-10 rounded-2xl bg-brand-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-brand-200 ring-4 ring-brand-50">
-              MC
+            <div className="h-10 w-10 rounded-2xl bg-brand-600 text-white flex items-center justify-center font-bold text-sm shadow-xl shadow-brand-400 ring-4 ring-brand-50">
+              TI
             </div>
           </div>
         </header>
@@ -407,11 +413,11 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
                             <div className="flex flex-col md:flex-row justify-between gap-12">
                               <div className="flex-1">
                                 <div className="flex items-center gap-4 mb-10">
-                                  <div className="h-1.5 w-10 bg-brand-600 rounded-full shadow-[0_0_12px_rgba(99,102,241,0.4)]" />
-                                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">MAC Core Intelligence</span>
+                                  <div className="h-1.5 w-10 bg-tisal-gold rounded-full shadow-[0_0_12px_#ffcd00]" />
+                                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em]">Audit Intel TISAL</span>
                                 </div>
                                 <h1 className="text-6xl font-black text-slate-900 tracking-tighter leading-[0.85] uppercase mb-10">
-                                  Postura <br/><span className="text-brand-600">Estratégica</span> <br/>Unificada
+                                  Gestión <br/><span className="text-brand-600">Tecnológica</span> <br/>de <span className="text-tisal-gold">Salud</span>
                                 </h1>
                                 <div className="flex items-center gap-10 mb-12 bg-white/40 backdrop-blur-md p-6 rounded-3xl border border-white/60 shadow-sm w-fit">
                                   <div className="flex flex-col">
@@ -504,14 +510,14 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
                         <div className="flex items-center justify-between pb-4 border-b border-slate-200">
                           <div className="flex items-center gap-4">
                             <div className="h-2 w-2 rounded-full bg-brand-600 animate-pulse shadow-[0_0_10px_#6366f1]" />
-                            <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Detalle Portfolio 2025</h4>
+                            <h4 className="text-base font-black text-slate-950 uppercase tracking-widest">Detalle Portfolio</h4>
                           </div>
                           <Button variant="ghost" size="sm" className="text-[10px] font-black text-brand-600 uppercase tracking-widest hover:bg-brand-50 rounded-xl px-4 py-2" onClick={() => setCurrentView('jira2025')}>
                             Vista Completa <ArrowUpRight size={14} className="ml-2" />
                           </Button>
                         </div>
                         <Card className="border-0 shadow-2xl rounded-[3rem] overflow-hidden bg-white">
-                          <JiraView data={data.jira2025} title="Portfolio Oversight" isOverview maxYear={2025} />
+                          <JiraView data={data.jira2025} title="Detalle Portfolio" isOverview maxYear={2025} />
                         </Card>
                       </div>
 
@@ -534,7 +540,7 @@ export default function ExecutiveDashboard({ data, onReset }: Props) {
                 </div>
               )}
               
-              {currentView === 'jira2025' && <JiraView data={data.jira2025} title="Seguimiento TI" maxYear={2025} />}
+              {currentView === 'jira2025' && <JiraView data={data.jira2025} title="Detalle Portfolio" maxYear={2025} />}
               {currentView === 'jira2026' && <JiraView data={data.jira2026} title="Hoja de Ruta 2026" />}
               {currentView === 'teamInitiatives' && <TeamPerformanceView data={data.jira2026} title="Desempeño Iniciativas 2026" subtitle="Análisis de ejecución y efectividad del equipo TI en proyectos estratégicos (Tickets Jira)." />}
               {currentView === 'sensor' && <SensorView data={data.sensor} />}

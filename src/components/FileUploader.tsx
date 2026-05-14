@@ -89,13 +89,20 @@ export function FileUploader({ onUpload, isLoading }: Props) {
                 <div className="flex flex-col items-center text-center">
                   <motion.div 
                     whileHover={{ scale: 1.05, rotate: 5 }}
-                    className="mb-8 p-5 bg-indigo-50 text-indigo-600 rounded-3xl shadow-sm border border-indigo-100/50"
+                    className="mb-8 p-5 bg-slate-900 text-tisal-gold rounded-3xl shadow-xl shadow-brand-100/20 border border-slate-800 relative z-10"
                   >
-                    <UploadCloud size={48} strokeWidth={1.5} />
+                    <div className="absolute inset-0 bg-gradient-to-br from-tisal-gold/20 to-transparent rounded-3xl pointer-events-none" />
+                    <UploadCloud size={48} strokeWidth={1.5} className="relative z-10" />
                   </motion.div>
-                  <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-3">Motor de Análisis</h2>
+                  <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">TISAL Control <span className="text-tisal-gold">Suite</span></h2>
+                  <div className="flex items-center gap-2 mb-8">
+                     <div className="h-[1px] w-4 bg-tisal-gold" />
+                     <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Inteligencia Operacional para Salud</span>
+                     <div className="h-[1px] w-4 bg-tisal-gold" />
+                  </div>
+                  
                   <p className="text-sm font-medium text-slate-500 mb-10 max-w-sm">
-                    Sincronice su entorno de datos para activar los dashboards analíticos y métricas ejecutivas.
+                    Inicie el motor táctico cargando su dataset de auditoría (Jira, Sensor o Matriz MAC).
                   </p>
 
                   <label
@@ -172,7 +179,7 @@ export function FileUploader({ onUpload, isLoading }: Props) {
                    className="space-y-4"
                 >
                   <h3 className="text-3xl font-black text-white tracking-tighter uppercase whitespace-nowrap">
-                    Procesando Neural Engine
+                    Motor de Auditoría y Control
                   </h3>
                   <div className="flex items-center gap-3 justify-center text-indigo-400">
                      <Activity size={16} className="animate-pulse" />
